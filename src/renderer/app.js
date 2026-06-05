@@ -196,7 +196,14 @@ function renderTasks() {
     clear.title = 'Remove all done tasks';
     clear.onclick = (e) => {
       e.stopPropagation();
-      window.api.tasksClearDone();
+      const count = done.length;
+      confirmDialog({
+        title: 'Clear done tasks?',
+        message: `Remove ${count} completed task${count > 1 ? 's' : ''} from Lea’s list? This only clears the list — your project files and the saved reports are not deleted.`,
+        confirmLabel: 'Clear',
+        danger: true,
+        onConfirm: () => window.api.tasksClearDone(),
+      });
     };
     hdr.appendChild(clear);
     list.appendChild(hdr);
@@ -220,6 +227,26 @@ function closeOverlay() {
   const o = $('#overlay');
   o.classList.add('hidden');
   o.innerHTML = '';
+}
+
+function confirmDialog(opts) {
+  const wrap = el('div', 'form');
+  if (opts.title) wrap.appendChild(el('h3', null, opts.title));
+  wrap.appendChild(el('div', 'confirm-msg', opts.message));
+  const actions = el('div', 'row end gap');
+  actions.style.marginTop = '14px';
+  const cancel = el('button', 'btn', opts.cancelLabel || 'Cancel');
+  cancel.onclick = closeOverlay;
+  const ok = el('button', 'btn ' + (opts.danger ? 'danger' : 'primary'), opts.confirmLabel || 'OK');
+  ok.onclick = () => {
+    closeOverlay();
+    opts.onConfirm();
+  };
+  actions.appendChild(cancel);
+  actions.appendChild(ok);
+  wrap.appendChild(actions);
+  openOverlay(wrap);
+  setTimeout(() => ok.focus(), 30);
 }
 
 function addForm() {
