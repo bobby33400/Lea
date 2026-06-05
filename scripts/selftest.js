@@ -202,4 +202,16 @@ const base = {
   ok('extractFollowups: structured block, NONE, heuristic section, and empty');
 }
 
+// --- report snapshot diff ---
+{
+  const { diffSnapshots } = require('../src/report');
+  const before = new Map([['a.txt', '1:10'], ['b.txt', '2:20'], ['c.txt', '3:30']]);
+  const after = new Map([['a.txt', '1:10'], ['b.txt', '9:25'], ['d.txt', '4:40']]);
+  const d = diffSnapshots(before, after);
+  assert.deepStrictEqual(d.added, ['d.txt'], 'added');
+  assert.deepStrictEqual(d.modified, ['b.txt'], 'modified (mtime/size changed)');
+  assert.deepStrictEqual(d.deleted, ['c.txt'], 'deleted');
+  ok('diffSnapshots detects added / modified / deleted');
+}
+
 console.log(`\nselftest OK — ${n} checks passed`);

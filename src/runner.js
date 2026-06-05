@@ -20,6 +20,7 @@ const config = require('./config');
 const { LOGS_DIR, SB_DIR, DATA_DIR, IS_WIN } = config;
 const { buildSeatbeltProfile, buildCommand } = require('./sandbox');
 const { classifyClaudeResult } = require('./classify');
+const report = require('./report');
 
 function realpath(p) {
   try {
@@ -178,6 +179,8 @@ class Runner extends EventEmitter {
     const logFile = path.join(LOGS_DIR, `${task.id}-${ts}.log`);
     const startedAt = Date.now();
 
+    const reportCtx = report.start(task); // create Lea_Reports/<file>.md + snapshot the project
+
     let result;
     try {
       result = await this._exec(task, logFile);
@@ -185,10 +188,13 @@ class Runner extends EventEmitter {
       result = { kind: 'error', error: 'spawn', message: String((e && e.message) || e) };
     }
 
+    const reportFile = report.finish(reportCtx, task, result); // write the changelog
+
     this.store.addRun(task.id, {
       startedAt,
       endedAt: Date.now(),
       logFile,
+      reportFile,
       kind: result.kind,
       costUSD: result.costUSD || null,
       sessionId: result.sessionId || null,
@@ -198,7 +204,7 @@ class Runner extends EventEmitter {
 
     let finished = null;
     if (result.kind === 'ok') {
-      this.store.update(task.id, { status: 'done', lastError: null, followups: result.followups || [] });
+      this.store.update(task.id, { status: 'done', lastError: null, followups: result.followups || [], reportFile });
       finished = { id: task.id, title: task.title, status: 'done', followups: result.followups || [] };
     } else if (result.kind === 'limited') {
       this.store.update(task.id, { status: 'queued' });
@@ -211,7 +217,7 @@ class Runner extends EventEmitter {
         this.store.update(task.id, { status: 'queued', attempts, lastError: result.message });
         this._setWait(Date.now() + 60 * 1000, 'retrying after error');
       } else {
-        this.store.update(task.id, { status: 'failed', attempts, lastError: result.message });
+        this.store.update(task.id, { status: 'failed', attempts, lastError: result.message, reportFile });
         finished = { id: task.id, title: task.title, status: 'failed', followups: [] };
       }
     }

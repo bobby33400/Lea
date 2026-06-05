@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('api', {
   settingsSet: (patch) => ipcRenderer.invoke('settings:set', patch),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
   openDataDir: () => ipcRenderer.invoke('app:openDataDir'),
+  openPath: (p) => ipcRenderer.invoke('app:openPath', p),
   quit: () => ipcRenderer.invoke('app:quit'),
   onUpdate: (cb) => ipcRenderer.on('update', (_e, msg) => cb(msg)),
 });
