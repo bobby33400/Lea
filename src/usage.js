@@ -4,6 +4,7 @@ const { EventEmitter } = require('events');
 const config = require('./config');
 const { run } = require('./spawnutil');
 const { parseCcusageBlocks } = require('./classify');
+const { preciseWindow } = require('./window');
 
 class UsageMonitor extends EventEmitter {
   constructor() {
@@ -50,6 +51,7 @@ class UsageMonitor extends EventEmitter {
     }
     try {
       const snap = parseCcusageBlocks(stdout);
+      this._refineReset(snap); // correct ccusage's hour-floored reset
       snap.updatedAt = Date.now();
       snap.error = null;
       this.snapshot = snap;
@@ -57,6 +59,32 @@ class UsageMonitor extends EventEmitter {
       this.snapshot = { ...this.snapshot, updatedAt: Date.now(), error: 'parse error' };
     }
     this.emit('update', this.snapshot);
+  }
+
+  // Replace ccusage's floored block bounds with the precise window derived from
+  // the real first-message timestamp. Cached per block so we scan transcripts
+  // at most once per 5-hour window.
+  _refineReset(snap) {
+    if (!snap.active || !snap.startAt || !snap.resetAt) return;
+    const key = snap.startAt; // floored block start is a stable id
+    if (this._wKey === key && this._wReset) {
+      snap.startAt = this._wStart;
+      snap.resetAt = this._wReset;
+      snap.preciseReset = this._wPrecise;
+      return;
+    }
+    try {
+      const w = preciseWindow(snap.startAt, snap.resetAt);
+      snap.startAt = w.startAt;
+      snap.resetAt = w.resetAt;
+      snap.preciseReset = w.precise;
+      this._wKey = key;
+      this._wStart = w.startAt;
+      this._wReset = w.resetAt;
+      this._wPrecise = w.precise;
+    } catch {
+      /* keep ccusage's values on any error */
+    }
   }
 
   msUntilReset() {
