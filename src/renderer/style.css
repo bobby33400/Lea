@@ -416,6 +416,19 @@ textarea.in {
   border-color: var(--accent);
   color: #fff;
 }
+.btn.danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+.btn.danger:hover {
+  filter: brightness(1.08);
+}
+.confirm-msg {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg);
+}
 .setting {
   display: flex;
   align-items: center;
