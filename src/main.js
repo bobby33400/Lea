@@ -226,5 +226,9 @@ function wireIpc(config) {
     shell.openPath(config.DATA_DIR);
     return true;
   });
+  ipcMain.handle('app:openPath', (_e, p) => {
+    if (p) shell.openPath(p);
+    return true;
+  });
   ipcMain.handle('app:quit', () => app.quit());
 }

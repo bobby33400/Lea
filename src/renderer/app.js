@@ -163,6 +163,7 @@ function taskRow(t) {
       }, runnerState.busy)
     );
   }
+  if (t.reportFile) actions.appendChild(mk('🧾', 'Open change report', () => window.api.openPath(t.reportFile)));
   actions.appendChild(mk('📄', 'View log', () => showLog(t)));
   actions.appendChild(mk('🗑', 'Delete', () => window.api.tasksRemove(t.id)));
   row.appendChild(actions);
