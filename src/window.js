@@ -46,7 +46,16 @@ function collectJsonl(dir) {
   return out;
 }
 
-/** Scan recent transcripts for the earliest message timestamp in [loMs, hiMs]. */
+/**
+ * Scan recent transcripts for the earliest QUOTA-CONSUMING message in
+ * [loMs, hiMs] — an entry with `message.usage`, i.e. a real API request.
+ *
+ * Anthropic anchors the 5-hour window to your first request that actually spends
+ * quota, NOT to when you started typing. The transcript can log user/attachment
+ * lines a few minutes before the first API call lands, so anchoring on "any
+ * timestamp" reads the reset a few minutes early. Filtering to usage-bearing
+ * entries matches the website.
+ */
 function scanFirstMessage(loMs, hiMs, projectsDir = PROJECTS_DIR) {
   let files;
   try {
@@ -70,12 +79,16 @@ function scanFirstMessage(loMs, hiMs, projectsDir = PROJECTS_DIR) {
     } catch {
       continue;
     }
-    let idx = -1;
-    while ((idx = data.indexOf('"timestamp":"', idx + 1)) !== -1) {
-      const start = idx + 13;
-      const end = data.indexOf('"', start);
-      if (end === -1) break;
-      const t = Date.parse(data.slice(start, end));
+    for (const line of data.split('\n')) {
+      if (line.indexOf('"usage"') === -1) continue; // quota-consuming entries only
+      let o;
+      try {
+        o = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!o.message || !o.message.usage) continue;
+      const t = Date.parse(o.timestamp);
       if (!isNaN(t) && t >= loMs && t <= hiMs && (min === null || t < min)) min = t;
     }
   }
