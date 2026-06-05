@@ -152,4 +152,22 @@ const base = {
   ok('classify surfaces a generic error');
 }
 
+// --- precise reset window ---
+{
+  const { earliestTimestampInRange, FIVE_HOURS_MS } = require('../src/window');
+  const lo = Date.parse('2026-06-05T12:00:00.000Z'); // ccusage floored start
+  const hi = Date.parse('2026-06-05T17:00:00.000Z'); // ccusage floored end
+  const ts = [
+    Date.parse('2026-06-05T11:59:00.000Z'), // before the block — ignored
+    Date.parse('2026-06-05T12:17:03.000Z'), // the real first message
+    Date.parse('2026-06-05T13:30:00.000Z'),
+    Date.parse('2026-06-05T18:00:00.000Z'), // after the block — ignored
+  ];
+  const first = earliestTimestampInRange(ts, lo, hi);
+  assert.strictEqual(first, Date.parse('2026-06-05T12:17:03.000Z'), 'picks the real first message');
+  assert.strictEqual(first + FIVE_HOURS_MS, Date.parse('2026-06-05T17:17:03.000Z'), 'reset = first message + 5h');
+  assert.ok(first + FIVE_HOURS_MS > hi, 'precise reset is later than ccusage floored reset');
+  ok('precise window: reset is first-message + 5h, not the floored hour');
+}
+
 console.log(`\nselftest OK — ${n} checks passed`);
