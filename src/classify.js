@@ -162,4 +162,65 @@ function classifyClaudeResult(o) {
   };
 }
 
-module.exports = { parseCcusageBlocks, classifyClaudeResult, extractFollowups, LIMIT_RE };
+// One-line description of a tool call, for the live log / activity indicator.
+function describeTool(name, input) {
+  input = input || {};
+  const file = input.file_path || input.path || input.notebook_path;
+  const short = (p) => {
+    if (!p) return '';
+    const s = String(p);
+    return s.length > 52 ? '…' + s.slice(-50) : s;
+  };
+  switch (name) {
+    case 'Read':
+      return 'Reading ' + short(file);
+    case 'Edit':
+    case 'MultiEdit':
+    case 'NotebookEdit':
+      return 'Editing ' + short(file);
+    case 'Write':
+      return 'Writing ' + short(file);
+    case 'Bash':
+      return 'Running: ' + String(input.command || '').replace(/\s+/g, ' ').slice(0, 140);
+    case 'Grep':
+      return 'Searching ' + JSON.stringify(input.pattern || '');
+    case 'Glob':
+      return 'Finding ' + JSON.stringify(input.pattern || '');
+    case 'Task':
+      return 'Sub-agent: ' + String(input.description || input.prompt || '').slice(0, 80);
+    case 'WebFetch':
+      return 'Fetching ' + String(input.url || '');
+    case 'WebSearch':
+      return 'Web search ' + JSON.stringify(input.query || '');
+    case 'TodoWrite':
+      return 'Updating its plan';
+    default:
+      return name + (file ? ' ' + short(file) : '');
+  }
+}
+
+// Turn one stream-json event into readable progress line(s) (or [] to skip).
+function summarizeStreamEvent(o) {
+  if (!o || typeof o !== 'object') return [];
+  if (o.type === 'assistant' && o.message && Array.isArray(o.message.content)) {
+    const lines = [];
+    for (const c of o.message.content) {
+      if (c.type === 'text' && c.text && c.text.trim()) {
+        lines.push('💬 ' + c.text.trim().replace(/\s+/g, ' ').slice(0, 240));
+      } else if (c.type === 'tool_use') {
+        lines.push('🔧 ' + describeTool(c.name, c.input));
+      }
+    }
+    return lines;
+  }
+  return []; // system/init, user/tool_result, result — skipped from the play-by-play
+}
+
+module.exports = {
+  parseCcusageBlocks,
+  classifyClaudeResult,
+  extractFollowups,
+  describeTool,
+  summarizeStreamEvent,
+  LIMIT_RE,
+};

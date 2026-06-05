@@ -13,6 +13,8 @@ let runnerState = { busy: false, waitUntil: null, waitReason: null, autoRun: tru
 let tasks = [];
 let settings = {};
 let doneCollapsed = false;
+let liveActivity = {}; // taskId -> [recent short activity lines]
+let logTimer = null; // refresh timer while a log panel is open
 
 const fmtDur = (ms) => {
   if (ms == null) return '—:—';
@@ -123,6 +125,14 @@ function followupsBox(items) {
   return box;
 }
 
+function renderActivityInto(node, lines) {
+  node.innerHTML = '';
+  const arr = lines && lines.length ? lines : ['• starting…'];
+  for (const l of arr) {
+    node.appendChild(el('div', 'act-line', l.length > 64 ? l.slice(0, 63) + '…' : l));
+  }
+}
+
 function taskRow(t) {
   const row = el('div', 'task ' + t.status);
   const main = el('div', 'task-main');
@@ -140,6 +150,12 @@ function taskRow(t) {
   }
   main.appendChild(meta);
   if (t.lastError) main.appendChild(el('div', 'err small', String(t.lastError).slice(0, 160)));
+  if (t.status === 'running') {
+    const act = el('div', 'task-activity');
+    act.id = 'act-' + t.id;
+    renderActivityInto(act, liveActivity[t.id]);
+    main.appendChild(act);
+  }
   if (t.followups && t.followups.length) main.appendChild(followupsBox(t.followups));
   row.appendChild(main);
 
@@ -228,6 +244,10 @@ function closeOverlay() {
   const o = $('#overlay');
   o.classList.add('hidden');
   o.innerHTML = '';
+  if (logTimer) {
+    clearInterval(logTimer);
+    logTimer = null;
+  }
 }
 
 function confirmDialog(opts) {
@@ -323,9 +343,24 @@ async function showLog(t) {
   const pre = el('pre', 'log', 'loading…');
   wrap.appendChild(pre);
   openOverlay(wrap);
-  const text = await window.api.logsGet(t.id);
-  pre.textContent = text || '(no log yet)';
+  const load = async () => {
+    const text = await window.api.logsGet(t.id);
+    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24;
+    pre.textContent = text || '(no log yet)';
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+  };
+  await load();
   pre.scrollTop = pre.scrollHeight;
+  // While a task is running its log grows — refresh so you see live progress.
+  if (logTimer) clearInterval(logTimer);
+  logTimer = setInterval(() => {
+    if ($('#overlay').classList.contains('hidden')) {
+      clearInterval(logTimer);
+      logTimer = null;
+      return;
+    }
+    load();
+  }, 1500);
 }
 
 function settingsForm() {
@@ -578,11 +613,24 @@ async function refreshAll() {
 }
 
 window.api.onUpdate(({ type, payload }) => {
+  if (type === 'activity') {
+    const arr = liveActivity[payload.id] || [];
+    arr.push(payload.text);
+    liveActivity[payload.id] = arr.slice(-3); // keep last 3 as bullets
+    const node = document.getElementById('act-' + payload.id);
+    if (node) renderActivityInto(node, liveActivity[payload.id]);
+    return; // targeted update, no full re-render
+  }
   if (type === 'usage') usage = payload;
   else if (type === 'runner') {
     runnerState = payload;
     $('#t-autorun').checked = !!runnerState.autoRun;
-  } else if (type === 'tasks') tasks = payload;
+  } else if (type === 'tasks') {
+    tasks = payload;
+    for (const id of Object.keys(liveActivity)) {
+      if (!tasks.find((t) => t.id === id && t.status === 'running')) delete liveActivity[id];
+    }
+  }
   renderUsage();
   if (type === 'tasks' || type === 'runner') renderTasks();
 });

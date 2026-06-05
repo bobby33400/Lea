@@ -19,7 +19,7 @@ const { EventEmitter } = require('events');
 const config = require('./config');
 const { LOGS_DIR, SB_DIR, DATA_DIR, IS_WIN } = config;
 const { buildSeatbeltProfile, buildCommand } = require('./sandbox');
-const { classifyClaudeResult } = require('./classify');
+const { classifyClaudeResult, summarizeStreamEvent } = require('./classify');
 const report = require('./report');
 
 function realpath(p) {
@@ -194,12 +194,14 @@ class Runner extends EventEmitter {
     this.busy = true;
     this.currentTaskId = task.id;
     this.phase = 'running';
-    this.store.update(task.id, { status: 'running' });
-    this._emitState();
 
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const logFile = path.join(LOGS_DIR, `${task.id}-${ts}.log`);
     const startedAt = Date.now();
+
+    // Record the live log path so it can be viewed WHILE the task runs.
+    this.store.update(task.id, { status: 'running', currentLogFile: logFile });
+    this._emitState();
 
     const model = this._modelFor(task); // cheap "away" model if idle, else your default
     const reportCtx = report.start(task, model); // create Lea_Reports/<file>.md + snapshot
@@ -332,6 +334,7 @@ class Runner extends EventEmitter {
 
       let stdout = '';
       let stderr = '';
+      let lineBuf = '';
       let child;
       try {
         child = spawn(bin, args, { cwd: task.cwd, env, detached: !IS_WIN });
@@ -350,11 +353,33 @@ class Runner extends EventEmitter {
         if (this.currentKill) this.currentKill();
       }, timeoutMs);
 
+      // One stream-json line → readable play-by-play in the log + live activity event.
+      const handleLine = (line) => {
+        const s = line.trim();
+        if (!s || s[0] !== '{') return;
+        let o;
+        try {
+          o = JSON.parse(s);
+        } catch {
+          return;
+        }
+        if (o.type === 'result') return; // final result handled on close
+        const parts = summarizeStreamEvent(o);
+        for (const p of parts) log.write(p + '\n');
+        if (parts.length) this.emit('activity', { id: task.id, text: parts[parts.length - 1] });
+      };
+
       if (child.stdout)
         child.stdout.on('data', (d) => {
           const s = d.toString();
           stdout += s;
-          log.write(s);
+          if (stdout.length > 1000000) stdout = stdout.slice(-1000000); // keep a tail (result is last)
+          lineBuf += s;
+          let idx;
+          while ((idx = lineBuf.indexOf('\n')) >= 0) {
+            handleLine(lineBuf.slice(0, idx));
+            lineBuf = lineBuf.slice(idx + 1);
+          }
         });
       if (child.stderr)
         child.stderr.on('data', (d) => {
@@ -367,8 +392,9 @@ class Runner extends EventEmitter {
       });
       child.on('close', (code) => {
         clearTimeout(killTimer);
+        if (lineBuf.trim()) handleLine(lineBuf);
         const res = classifyClaudeResult({ code, stdout, stderr, timedOut });
-        log.write(`\n\n# result: ${res.kind}${res.message ? ' — ' + res.message : ''}\n`);
+        log.write(`\n# result: ${res.kind}${res.message ? ' — ' + res.message : ''}\n`);
         log.end();
         resolve(res);
       });

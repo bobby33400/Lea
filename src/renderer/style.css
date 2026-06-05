@@ -270,6 +270,24 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* live "currently working on" bullets on a running task */
+.task-activity {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.act-line {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.act-line:last-child {
+  color: var(--accent2); /* highlight the current action */
+}
 .badge {
   font-size: 10px;
   text-transform: uppercase;
