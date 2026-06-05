@@ -120,6 +120,7 @@ function forwardEvents(config) {
     updatePower(config);
   });
   runner.on('finished', (info) => notifyFinished(info));
+  runner.on('activity', (a) => send('activity', a));
 }
 
 // Tell the user a task wrapped up — and whether it needs them.
@@ -191,10 +192,14 @@ function startTitleTimer() {
 function readLatestLog(id) {
   const fs = require('fs');
   const t = store.get(id);
-  if (!t || !t.runs || t.runs.length === 0) return '(no runs yet)';
-  const last = t.runs[t.runs.length - 1];
+  if (!t) return '(no runs yet)';
+  // While running, read the live log file; otherwise the latest finished run's.
+  let file = null;
+  if (t.status === 'running' && t.currentLogFile) file = t.currentLogFile;
+  else if (t.runs && t.runs.length) file = t.runs[t.runs.length - 1].logFile;
+  if (!file) return '(no runs yet)';
   try {
-    return fs.readFileSync(last.logFile, 'utf8');
+    return fs.readFileSync(file, 'utf8');
   } catch {
     return '(log unavailable)';
   }

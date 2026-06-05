@@ -25,7 +25,7 @@ const base = {
   assert.strictEqual(cmd.bin, '/usr/bin/sandbox-exec');
   assert.deepStrictEqual(cmd.args.slice(0, 3), ['-f', '/tmp/x.sb', '/opt/homebrew/bin/claude']);
   assert.ok(cmd.args.includes('refactor the parser'), 'prompt passed as a single arg');
-  assert.ok(cmd.args.includes('--output-format') && cmd.args.includes('json'));
+  assert.ok(cmd.args.includes('--output-format') && cmd.args.includes('stream-json') && cmd.args.includes('--verbose'));
   assert.ok(cmd.args.includes('bypassPermissions'));
   assert.ok(cmd.args.includes('--model') && cmd.args.includes('opus'));
   ok('seatbelt backend wraps claude in sandbox-exec');
@@ -212,6 +212,24 @@ const base = {
   assert.deepStrictEqual(d.modified, ['b.txt'], 'modified (mtime/size changed)');
   assert.deepStrictEqual(d.deleted, ['c.txt'], 'deleted');
   ok('diffSnapshots detects added / modified / deleted');
+}
+
+// --- stream-json progress summarizer ---
+{
+  const { summarizeStreamEvent, describeTool } = require('../src/classify');
+  assert.strictEqual(describeTool('Read', { file_path: '/a/b/c.ts' }), 'Reading /a/b/c.ts');
+  assert.ok(describeTool('Bash', { command: 'npm test' }).startsWith('Running: npm test'));
+  const ev = {
+    type: 'assistant',
+    message: { content: [{ type: 'text', text: 'Looking at the code' }, { type: 'tool_use', name: 'Edit', input: { file_path: 'x.js' } }] },
+  };
+  const out = summarizeStreamEvent(ev);
+  assert.strictEqual(out.length, 2);
+  assert.ok(out[0].includes('Looking at the code'));
+  assert.ok(out[1].includes('Editing x.js'));
+  assert.deepStrictEqual(summarizeStreamEvent({ type: 'result' }), [], 'result event produces no progress line');
+  assert.deepStrictEqual(summarizeStreamEvent({ type: 'system', subtype: 'init' }), []);
+  ok('summarizeStreamEvent + describeTool produce readable progress lines');
 }
 
 console.log(`\nselftest OK — ${n} checks passed`);
