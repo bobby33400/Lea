@@ -12,6 +12,7 @@ let usage = { active: false, resetAt: null, startAt: null, totalTokens: 0, costU
 let runnerState = { busy: false, waitUntil: null, waitReason: null, autoRun: true, phase: 'idle' };
 let tasks = [];
 let settings = {};
+let doneCollapsed = false;
 
 const fmtDur = (ms) => {
   if (ms == null) return '—:—';
@@ -25,6 +26,10 @@ const fmtDur = (ms) => {
 };
 const fmtTokens = (n) => (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n || 0));
 const basename = (p) => (p || '').replace(/\/+$/, '').split('/').pop() || p;
+const doneTime = (t) => {
+  const r = t.runs && t.runs.length ? t.runs[t.runs.length - 1] : null;
+  return (r && r.endedAt) || t.updatedAt || 0;
+};
 
 let toastTimer = null;
 function toast(msg) {
@@ -168,7 +173,7 @@ function renderTasks() {
   const list = $('#tasks');
   list.innerHTML = '';
   const active = tasks.filter((t) => t.status !== 'done');
-  const done = tasks.filter((t) => t.status === 'done');
+  const done = tasks.filter((t) => t.status === 'done').sort((a, b) => doneTime(b) - doneTime(a)); // newest first
 
   if (active.length === 0 && done.length === 0) {
     list.appendChild(
@@ -180,14 +185,21 @@ function renderTasks() {
   for (const t of active) list.appendChild(taskRow(t));
 
   if (done.length) {
-    const hdr = el('div', 'section-hdr');
-    hdr.appendChild(el('span', null, '✓ Done (' + done.length + ')'));
+    const hdr = el('div', 'section-hdr foldable');
+    hdr.onclick = () => {
+      doneCollapsed = !doneCollapsed;
+      renderTasks();
+    };
+    hdr.appendChild(el('span', null, (doneCollapsed ? '▸' : '▾') + '  ✓ Done (' + done.length + ')'));
     const clear = el('button', 'linkbtn', 'Clear');
     clear.title = 'Remove all done tasks';
-    clear.onclick = () => window.api.tasksClearDone();
+    clear.onclick = (e) => {
+      e.stopPropagation();
+      window.api.tasksClearDone();
+    };
     hdr.appendChild(clear);
     list.appendChild(hdr);
-    for (const t of done) list.appendChild(taskRow(t));
+    if (!doneCollapsed) for (const t of done) list.appendChild(taskRow(t));
   }
 }
 

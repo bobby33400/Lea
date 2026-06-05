@@ -151,6 +151,13 @@ body {
   border-top: 1px solid var(--line);
   padding-top: 10px;
 }
+.section-hdr.foldable {
+  cursor: pointer;
+  user-select: none;
+}
+.section-hdr.foldable:hover {
+  color: var(--fg);
+}
 .linkbtn {
   background: transparent;
   border: 0;
