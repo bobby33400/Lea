@@ -527,6 +527,15 @@ textarea.in {
   padding: 8px;
   line-height: 1.5;
 }
+.intro {
+  color: var(--muted);
+  font-size: 11px;
+  background: var(--card2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  line-height: 1.5;
+}
 pre.log {
   background: #0f1013;
   border: 1px solid var(--line);

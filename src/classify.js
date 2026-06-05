@@ -65,6 +65,11 @@ function lastJsonObject(s) {
 const LIMIT_RE =
   /(usage limit (?:reached|exceeded)|rate[- ]?limit|\b429\b|too many requests|quota (?:exceeded|reached)|limit reached|reached your .{0,30}limit|exceeded your .{0,30}limit|insufficient .{0,20}credit)/i;
 
+// Login/token problems — distinct from usage limits. The user must re-auth
+// (`claude` → /login); retrying won't help, so we surface it specially.
+const AUTH_RE =
+  /(invalid authentication credentials|\b401\b|unauthorized|authentication[_ ]error|invalid[_ ]api[_ ]key|oauth.{0,20}(?:expired|invalid)|please run .{0,10}login|not logged in|login expired|token (?:has )?expired|session expired)/i;
+
 /**
  * Extract the "things the human must do" follow-ups from a run's result text.
  * Prefers the structured block Lea asks Claude to emit; falls back to a
@@ -127,12 +132,15 @@ function classifyClaudeResult(o) {
   }
 
   const text = `${stdout}\n${stderr}`;
-  const limited = LIMIT_RE.test(text);
+  const auth = AUTH_RE.test(text);
+  const limited = !auth && LIMIT_RE.test(text); // a 401 is auth, not a usage cap
   const parsed = tryParse(stdout) || lastJsonObject(stdout);
 
   if (parsed && parsed.type === 'result') {
     const isError = parsed.is_error === true || (parsed.subtype && parsed.subtype !== 'success');
     if (isError) {
+      if (auth)
+        return { kind: 'auth', message: String(parsed.result || 'Claude login expired — please sign in again.').slice(0, 600) };
       if (limited) return { kind: 'limited', message: String(parsed.result || 'Usage limit reached').slice(0, 600) };
       return {
         kind: 'error',
@@ -152,6 +160,7 @@ function classifyClaudeResult(o) {
     };
   }
 
+  if (auth) return { kind: 'auth', message: 'Claude login expired — please sign in again.' };
   if (limited) return { kind: 'limited', message: 'Usage limit reached.' };
   if (code === 0)
     return { kind: 'ok', result: stdout.trim(), costUSD: null, sessionId: null, usage: null, followups: extractFollowups(stdout) };
@@ -223,4 +232,5 @@ module.exports = {
   describeTool,
   summarizeStreamEvent,
   LIMIT_RE,
+  AUTH_RE,
 };

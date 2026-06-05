@@ -455,6 +455,14 @@ function settingsForm() {
   head.appendChild(close);
   wrap.appendChild(head);
 
+  wrap.appendChild(
+    el(
+      'div',
+      'intro',
+      'These are your preferences — everything here is yours to change. Tweak any setting to make Lea work the way you like; changes save automatically.'
+    )
+  );
+
   const toggle = (key, label, desc) => {
     const r = el('div', 'setting');
     const left = el('div');

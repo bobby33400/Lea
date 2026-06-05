@@ -42,8 +42,14 @@ function buildSeatbeltProfile(o) {
     `${home}/Library/Logs`,
     `${home}/Library/pnpm`,
     `${home}/.bun`,
+    `${home}/Library/Keychains`, // Claude refreshes its OWN login token here — must be writable
   ];
   const writable = [o.cwd, o.dataDir, ...(o.extraDirs || [])].filter(Boolean);
+  // Sensitive plaintext credential dirs we keep tamper-protected. NOTE: we do
+  // NOT deny ~/Library/Keychains — Claude stores & silently refreshes its own
+  // OAuth login token there; blocking it makes the token go stale and every
+  // sandboxed run fail with "401 Invalid authentication credentials" until the
+  // user manually /login. (Reads are open anyway, so this isn't an exfil change.)
   const protectedDirs = [
     `${home}/.ssh`,
     `${home}/.aws`,
@@ -52,7 +58,6 @@ function buildSeatbeltProfile(o) {
     `${home}/.config/gcloud`,
     `${home}/.kube`,
     `${home}/.docker`,
-    `${home}/Library/Keychains`,
   ];
 
   const lines = [

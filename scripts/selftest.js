@@ -152,6 +152,19 @@ const base = {
   ok('classify surfaces a generic error');
 }
 
+// --- classify: auth/login failure (distinct from limit + generic error) ---
+{
+  const r = classifyClaudeResult({ code: 1, stdout: '', stderr: 'API Error: 401 Invalid authentication credentials' });
+  assert.strictEqual(r.kind, 'auth', '401 maps to auth, not error/limited');
+  const j = classifyClaudeResult({
+    code: 0,
+    stdout: JSON.stringify({ type: 'result', subtype: 'error', is_error: true, result: 'Failed to authenticate. API Error: 401 Invalid authentication credentials' }),
+    stderr: '',
+  });
+  assert.strictEqual(j.kind, 'auth', 'auth detected inside JSON result too');
+  ok('classify detects an auth/login failure as kind=auth');
+}
+
 // --- precise reset window ---
 {
   const { earliestTimestampInRange, FIVE_HOURS_MS } = require('../src/window');

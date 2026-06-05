@@ -129,7 +129,10 @@ function notifyFinished(info) {
     if (!Notification.isSupported()) return;
     let title;
     let body;
-    if (info.status === 'done') {
+    if (info.status === 'auth') {
+      title = '🔑 Sign in to Claude again';
+      body = 'Lea paused — your Claude login expired. Run `claude`, then /login, and turn auto-run back on.';
+    } else if (info.status === 'done') {
       const n = (info.followups || []).length;
       title = '✅ ' + info.title;
       body = n ? `Done — ${n} thing${n > 1 ? 's' : ''} for you to do. Click to view.` : 'Done — nothing needed from you.';

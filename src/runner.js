@@ -249,6 +249,12 @@ class Runner extends EventEmitter {
       this.store.update(task.id, { status: 'queued' }); // keep queuedReply so the reply retries after reset
       const resetAt = (this.usage.snapshot && this.usage.snapshot.resetAt) || Date.now() + 30 * 60 * 1000;
       this._setWait(resetAt, 'usage limit — waiting for reset');
+    } else if (result.kind === 'auth') {
+      // Login expired — retrying won't help and would burn tokens. Keep the task
+      // queued, pause auto-run, and tell the user to sign in again.
+      this.store.update(task.id, { status: 'queued', lastError: 'Claude login expired — sign in again (run `claude`, then /login), then re-enable auto-run.' });
+      config.setSettings({ autoRun: false });
+      finished = { id: task.id, title: task.title, status: 'auth', needsLogin: true, followups: [] };
     } else {
       const attempts = (task.attempts || 0) + 1;
       const max = config.get('maxRetries') || 0;
