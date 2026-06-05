@@ -66,6 +66,54 @@ const LIMIT_RE =
   /(usage limit (?:reached|exceeded)|rate[- ]?limit|\b429\b|too many requests|quota (?:exceeded|reached)|limit reached|reached your .{0,30}limit|exceeded your .{0,30}limit|insufficient .{0,20}credit)/i;
 
 /**
+ * Extract the "things the human must do" follow-ups from a run's result text.
+ * Prefers the structured block Lea asks Claude to emit; falls back to a
+ * heuristic scan for an "Action required / Next steps" markdown section so
+ * older runs still surface something.
+ * @returns {string[]}
+ */
+function extractFollowups(text) {
+  if (!text) return [];
+
+  // 1) Structured block: ===LEA-FOLLOWUPS=== ... ===END-FOLLOWUPS===
+  const block = text.match(/===LEA-FOLLOWUPS===\s*([\s\S]*?)\s*===END-FOLLOWUPS===/i);
+  if (block) {
+    const body = block[1].trim();
+    if (!body || /^none\.?$/i.test(body)) return [];
+    return body
+      .split('\n')
+      .map((l) => l.replace(/^\s*[-*]\s?/, '').trim())
+      .filter((l) => l && !/^none\.?$/i.test(l));
+  }
+
+  // 2) Heuristic: a markdown "action required / next steps / to-do" section.
+  const lines = text.split('\n');
+  const hdrRe =
+    /^#{1,6}\s*(actions?\s+required|next\s+steps?|to[-\s]?dos?|manual\s+steps?|what\s+you\s+(?:need\s+to|should)\s+do|action\s+items?|follow[-\s]?ups?)\b/i;
+  let start = -1;
+  let level = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const h = lines[i].match(/^(#{1,6})\s/);
+    if (h && hdrRe.test(lines[i])) {
+      start = i;
+      level = h[1].length;
+      break;
+    }
+  }
+  if (start === -1) return [];
+  const section = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const h = lines[i].match(/^(#{1,6})\s/);
+    if (h && h[1].length <= level) break; // next same/higher-level header ends it
+    section.push(lines[i]);
+  }
+  const bullets = section.filter((l) => /^\s*[-*]\s+/.test(l)).map((l) => l.replace(/^\s*[-*]\s+/, '').trim());
+  if (bullets.length) return bullets;
+  const note = section.join('\n').trim();
+  return note ? [note] : [];
+}
+
+/**
  * Classify a finished claude run.
  * @returns {{kind:'ok'|'limited'|'error', ...}}
  *   ok      -> { result, costUSD, sessionId, usage }
@@ -99,12 +147,14 @@ function classifyClaudeResult(o) {
       costUSD: typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : null,
       sessionId: parsed.session_id || null,
       usage: parsed.usage || null,
+      followups: extractFollowups(String(parsed.result || '')),
       parsed,
     };
   }
 
   if (limited) return { kind: 'limited', message: 'Usage limit reached.' };
-  if (code === 0) return { kind: 'ok', result: stdout.trim(), costUSD: null, sessionId: null, usage: null };
+  if (code === 0)
+    return { kind: 'ok', result: stdout.trim(), costUSD: null, sessionId: null, usage: null, followups: extractFollowups(stdout) };
   return {
     kind: 'error',
     error: `exit ${code}`,
@@ -112,4 +162,4 @@ function classifyClaudeResult(o) {
   };
 }
 
-module.exports = { parseCcusageBlocks, classifyClaudeResult, LIMIT_RE };
+module.exports = { parseCcusageBlocks, classifyClaudeResult, extractFollowups, LIMIT_RE };

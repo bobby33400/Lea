@@ -29,6 +29,17 @@ function realpath(p) {
   }
 }
 
+// Appended to every run's system prompt so Claude reports what the human still
+// has to do (and we can parse + surface it).
+const FOLLOWUP_INSTRUCTION = [
+  'When you have completely finished the task, append a final section in EXACTLY this format, with nothing after it:',
+  '===LEA-FOLLOWUPS===',
+  '- <one action the human must do themselves, with any exact command in backticks>',
+  '- <another action>',
+  '===END-FOLLOWUPS===',
+  'List ONLY actions you could not complete yourself that require the human — e.g. pushing to a remote, applying a database migration, deploying, rotating or adding a secret/API key, approving risky changes, or manual testing. Keep each item short and actionable. If there are none, write NONE on a single line between the markers.',
+].join('\n');
+
 class Runner extends EventEmitter {
   constructor({ store, usage }) {
     super();
@@ -185,8 +196,10 @@ class Runner extends EventEmitter {
       error: result.kind === 'error' ? result.message || result.error : null,
     });
 
+    let finished = null;
     if (result.kind === 'ok') {
-      this.store.update(task.id, { status: 'done', lastError: null });
+      this.store.update(task.id, { status: 'done', lastError: null, followups: result.followups || [] });
+      finished = { id: task.id, title: task.title, status: 'done', followups: result.followups || [] };
     } else if (result.kind === 'limited') {
       this.store.update(task.id, { status: 'queued' });
       const resetAt = (this.usage.snapshot && this.usage.snapshot.resetAt) || Date.now() + 30 * 60 * 1000;
@@ -199,6 +212,7 @@ class Runner extends EventEmitter {
         this._setWait(Date.now() + 60 * 1000, 'retrying after error');
       } else {
         this.store.update(task.id, { status: 'failed', attempts, lastError: result.message });
+        finished = { id: task.id, title: task.title, status: 'failed', followups: [] };
       }
     }
 
@@ -208,6 +222,7 @@ class Runner extends EventEmitter {
     this.currentKill = null;
     this.phase = 'idle';
     this._emitState();
+    if (finished) this.emit('finished', finished);
     setImmediate(() => this.tick());
   }
 
@@ -262,6 +277,7 @@ class Runner extends EventEmitter {
         model: task.model || config.get('model'),
         fallbackModel: config.get('fallbackModel'),
         permissionMode: config.get('permissionMode') || 'bypassPermissions',
+        appendSystemPrompt: FOLLOWUP_INSTRUCTION,
         addDirs: [task.cwd],
         sbFile,
         dockerImage: config.get('dockerImage'),
