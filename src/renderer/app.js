@@ -332,7 +332,7 @@ function settingsForm() {
   const wrap = el('div', 'form');
   const head = el('div', 'row between');
   head.appendChild(el('h3', null, 'Settings'));
-  const close = el('button', 'btn', 'Done');
+  const close = el('button', 'btn primary', 'Done');
   close.onclick = closeOverlay;
   head.appendChild(close);
   wrap.appendChild(head);
