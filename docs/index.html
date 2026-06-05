@@ -1,0 +1,1206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lea — your autonomous Claude assistant that works while you sleep</title>
+<meta name="description" content="Lea is a cross-platform menu-bar app that tracks your Claude usage and autonomously runs a to-do queue the moment your limit resets. Queue work before bed, wake up to it done." />
+<meta name="theme-color" content="#16171b" />
+
+<!-- Open Graph / social -->
+<meta property="og:title" content="Lea — autonomous Claude task runner" />
+<meta property="og:description" content="Tracks your Claude usage and runs a to-do queue automatically the moment your limit resets. Open source, MIT, runs on macOS / Windows / Linux." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://github.com/bobby33400/Lea" />
+
+<!-- Favicon: the app's terracotta gauge-ring icon, inline -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%23d97757'/%3E%3Ccircle cx='32' cy='32' r='15' fill='none' stroke='%23fff' stroke-width='6'/%3E%3C/svg%3E" />
+
+<style>
+  :root {
+    --bg: #16171b;
+    --bg2: #121317;
+    --card: #1f2127;
+    --card2: #24262e;
+    --line: #2d2f38;
+    --fg: #e9eaee;
+    --muted: #9aa0ad;
+    --accent: #d97757;   /* Claude-ish terracotta */
+    --accent2: #6aa9ff;
+    --green: #4caf7d;
+    --red: #e0635f;
+    --yellow: #d8b25a;
+    --maxw: 1080px;
+    --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  a { color: var(--accent2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1, h2, h3 { line-height: 1.15; letter-spacing: -0.02em; margin: 0; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  .accent { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  /* ---------- background glow ---------- */
+  .glow {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(620px 420px at 78% -8%, rgba(217,119,87,0.18), transparent 70%),
+      radial-gradient(560px 420px at 8% 4%, rgba(106,169,255,0.12), transparent 70%);
+    pointer-events: none;
+  }
+
+  /* ---------- nav ---------- */
+  header.nav {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(12px);
+    background: rgba(18,19,23,0.72);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner { display: flex; align-items: center; gap: 18px; height: 60px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.01em; }
+  .logo svg { width: 26px; height: 26px; display: block; }
+  .nav-links { margin-left: auto; display: flex; align-items: center; gap: 22px; }
+  .nav-links a { color: var(--muted); font-size: 14px; font-weight: 500; }
+  .nav-links a:hover { color: var(--fg); text-decoration: none; }
+  .nav-cta {
+    background: var(--accent); color: #fff !important; padding: 8px 15px;
+    border-radius: 9px; font-weight: 600; font-size: 14px;
+  }
+  .nav-cta:hover { filter: brightness(1.08); text-decoration: none; }
+  @media (max-width: 720px) { .nav-links .hide-sm { display: none; } }
+
+  /* ---------- live GitHub star tracker ---------- */
+  .nav-star {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid var(--line); background: var(--card);
+    color: var(--fg); font-size: 13px; font-weight: 600;
+    padding: 6px 11px; border-radius: 9px; font-variant-numeric: tabular-nums;
+    transition: border-color .15s;
+  }
+  .nav-star:hover { border-color: var(--yellow); text-decoration: none; }
+  .nav-star .star-ico { width: 15px; height: 15px; fill: var(--yellow); flex: 0 0 auto; }
+  .nav-star .star-lbl { color: var(--muted); font-weight: 500; }
+  @media (max-width: 540px) { .nav-star .star-lbl { display: none; } }
+
+  /* live chip used on the hero "Star on GitHub" button */
+  .star-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-left: 2px; padding: 2px 9px; border-radius: 999px;
+    background: var(--card2); border: 1px solid var(--line);
+    font-size: 13px; font-weight: 700; color: var(--yellow);
+    font-variant-numeric: tabular-nums;
+  }
+  .live-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green); box-shadow: 0 0 8px var(--green);
+    animation: livepulse 1.8s ease-in-out infinite; flex: 0 0 auto;
+  }
+  @keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+  .star-count.bump { animation: starbump .5s ease; }
+  @keyframes starbump {
+    0% { transform: none; }
+    30% { transform: translateY(-2px) scale(1.16); }
+    100% { transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot, .star-count.bump { animation: none; }
+  }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 84px 0 64px; }
+  .hero-grid {
+    display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: center;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--line); background: var(--card);
+    color: var(--muted); font-size: 13px; font-weight: 500;
+    padding: 5px 12px; border-radius: 999px; margin-bottom: 22px;
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .hero h1 { font-size: clamp(40px, 6vw, 62px); font-weight: 800; }
+  .hero .sub { font-size: clamp(18px, 2.4vw, 22px); color: var(--muted); margin-top: 18px; max-width: 540px; }
+  .hero .sub b { color: var(--fg); font-weight: 600; }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 12px 20px; border-radius: 11px; font-weight: 600; font-size: 15px;
+    border: 1px solid transparent; cursor: pointer; transition: filter .15s, background .15s, border-color .15s;
+  }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.08); text-decoration: none; }
+  .btn.ghost { background: var(--card); border-color: var(--line); color: var(--fg); }
+  .btn.ghost:hover { border-color: var(--muted); text-decoration: none; }
+  .btn svg { width: 18px; height: 18px; }
+  .hero-meta { margin-top: 26px; display: flex; gap: 22px; flex-wrap: wrap; color: var(--muted); font-size: 13.5px; }
+  .hero-meta span { display: inline-flex; align-items: center; gap: 7px; }
+  .hero-meta b { color: var(--fg); font-weight: 600; }
+
+  @media (max-width: 880px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 44px; }
+    .hero { padding: 56px 0 40px; }
+  }
+
+  /* ---------- app mockup (mirrors the real tray UI) ---------- */
+  .mock-stage { position: relative; }
+  .menubar {
+    display: flex; align-items: center; justify-content: flex-end; gap: 14px;
+    height: 26px; padding: 0 12px; margin: 0 auto 0;
+    width: 100%; color: var(--muted); font-size: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .menubar .tray {
+    display: inline-flex; align-items: center; gap: 6px; color: var(--fg);
+    font-weight: 600; font-variant-numeric: tabular-nums;
+    background: var(--card); border: 1px solid var(--line);
+    padding: 2px 9px; border-radius: 7px;
+  }
+  .menubar .tray .ring {
+    width: 11px; height: 11px; border-radius: 50%;
+    border: 2px solid var(--accent); border-right-color: transparent; rotate: -45deg;
+  }
+  .app {
+    width: 100%; max-width: 360px; margin: 14px auto 0;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 16px;
+    overflow: hidden; box-shadow: 0 30px 80px -20px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.02);
+  }
+  .app .card-top { background: linear-gradient(180deg, var(--card), var(--bg)); padding: 14px 16px 16px; border-bottom: 1px solid var(--line); }
+  .brand-row { display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 14px; }
+  .brand .bdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .gear { color: var(--muted); }
+  .countdown { text-align: center; margin: 14px 0 10px; }
+  .countdown .big { font-size: 42px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
+  .countdown .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; margin-top: 2px; }
+  .bar { height: 6px; border-radius: 4px; background: var(--card2); overflow: hidden; }
+  .bar-fill { height: 100%; width: 62%; background: linear-gradient(90deg, var(--accent), var(--yellow)); }
+  .stats { margin-top: 9px; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; display:flex; justify-content: space-between; }
+  .models { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+  .mrow { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+  .mname { width: 64px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mbar { flex: 1; height: 5px; border-radius: 3px; background: var(--card2); overflow: hidden; }
+  .mbarfill { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); }
+  .mval { width: 46px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .list { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .task { display: flex; gap: 9px; background: var(--card); border: 1px solid var(--line); border-radius: 11px; padding: 10px 11px; }
+  .task.running { border-color: var(--accent2); box-shadow: 0 0 0 1px var(--accent2) inset; }
+  .task.done { opacity: .62; }
+  .task-main { flex: 1; min-width: 0; }
+  .task-title { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .task-meta { display: flex; align-items: center; gap: 7px; margin-top: 5px; }
+  .badge { font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; padding: 2px 8px; border-radius: 20px; background: var(--card2); color: var(--muted); }
+  .badge.queued { color: var(--accent2); }
+  .badge.running { color: #fff; background: var(--accent2); }
+  .badge.done { color: var(--green); }
+  .task-sub { color: var(--muted); font-size: 11px; }
+  .activity { margin-top: 7px; display: flex; flex-direction: column; gap: 2px; }
+  .act { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .act.cur { color: var(--accent2); }
+  .followups { margin-top: 8px; background: rgba(106,169,255,0.08); border: 1px solid rgba(106,169,255,0.32); border-radius: 8px; padding: 8px 10px; }
+  .fu-title { font-size: 10px; font-weight: 700; color: var(--accent2); margin-bottom: 4px; letter-spacing: .3px; }
+  .fu-item { font-size: 11px; line-height: 1.5; }
+  .fu-item code { background: #0f1013; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font: 10.5px var(--mono); color: var(--yellow); }
+  .app-foot { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); background: var(--card); font-size: 12px; }
+  .app-foot .add { background: var(--accent); color: #fff; border: 0; padding: 7px 13px; border-radius: 8px; font-weight: 600; font-size: 12px; }
+  .app-foot .tog { margin-left: auto; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  .switch { width: 30px; height: 17px; border-radius: 10px; background: var(--accent); position: relative; }
+  .switch::after { content:""; position:absolute; width: 13px; height: 13px; border-radius: 50%; background:#fff; top: 2px; right: 2px; }
+
+  /* ---------- interactive demo ---------- */
+  .demo-hint { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 auto 10px; font-size: 12px; color: var(--muted); }
+  .app { position: relative; }
+  .status-chip { font-size: 10px; font-weight: 600; color: var(--muted); background: var(--card2); border: 1px solid var(--line); padding: 1px 8px; border-radius: 999px; letter-spacing: .2px; }
+  .status-chip.run { color: var(--accent2); border-color: rgba(106,169,255,.45); }
+  .status-chip.wait { color: var(--yellow); border-color: rgba(216,178,90,.45); }
+  button.gear { background: none; border: 0; color: var(--muted); font-size: 15px; cursor: pointer; padding: 2px 5px; border-radius: 7px; line-height: 1; transition: .12s; }
+  button.gear:hover { color: var(--fg); background: var(--card2); }
+  button.gear.open { color: var(--accent); background: var(--card2); }
+
+  .list { max-height: 268px; overflow-y: auto; }
+  .list::-webkit-scrollbar { width: 8px; }
+  .list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  .list::-webkit-scrollbar-track { background: transparent; }
+
+  .task { position: relative; transition: border-color .15s; }
+  .task:hover { border-color: var(--card2); }
+  .task.running:hover { border-color: var(--accent2); }
+  .task-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity .12s; }
+  .task:hover .task-actions, .task:focus-within .task-actions { opacity: 1; }
+  .tact { width: 22px; height: 22px; display: grid; place-items: center; background: var(--card2); border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 11px; cursor: pointer; line-height: 1; padding: 0; transition: .12s; }
+  .tact:hover { color: var(--fg); border-color: var(--muted); }
+  .tact.run:hover { color: var(--accent2); border-color: var(--accent2); }
+  .tact.del:hover { color: var(--red); border-color: var(--red); }
+  .badge.retry, .task-sub.retry { color: var(--yellow); }
+  .empty { text-align: center; color: var(--muted); font-size: 12px; padding: 28px 18px; white-space: pre-line; line-height: 1.6; }
+
+  /* on/off switch (footer + settings) */
+  .switch { border: 0; padding: 0; cursor: pointer; transition: background .18s; }
+  .switch::after { transition: transform .18s; }
+  .switch.off { background: var(--card2); }
+  .switch.off::after { transform: translateX(-13px); }
+
+  /* add-task composer */
+  .composer { max-height: 0; overflow: hidden; opacity: 0; background: var(--card); border-top: 1px solid transparent; padding: 0 12px; transition: max-height .25s ease, opacity .2s ease, padding .2s ease; }
+  .composer.open { max-height: 220px; opacity: 1; padding: 12px; border-top: 1px solid var(--line); }
+  .composer textarea { width: 100%; resize: none; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; font: inherit; font-size: 12.5px; outline: none; }
+  .composer textarea:focus { border-color: var(--accent2); }
+  .composer-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .composer-row.end { justify-content: flex-end; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; cursor: pointer; font-family: var(--mono); transition: .12s; }
+  .chip:hover { color: var(--fg); }
+  .chip.sel { color: var(--fg); border-color: var(--accent); background: rgba(217,119,87,.12); }
+  .mini { font-size: 12px; font-weight: 600; padding: 6px 13px; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; background: var(--card2); color: var(--fg); transition: .12s; }
+  .mini.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .mini.primary:hover { filter: brightness(1.08); }
+  .mini.ghost:hover { border-color: var(--muted); }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
+  .shake { animation: shake .25s; }
+
+  /* usage-limit / retry banner */
+  .wait-banner { margin: 0 10px 2px; padding: 9px 11px; border-radius: 9px; background: rgba(216,178,90,.1); border: 1px solid rgba(216,178,90,.4); color: var(--fg); font-size: 11.5px; line-height: 1.5; display: flex; gap: 8px; align-items: flex-start; }
+  .wait-banner b { color: var(--yellow); }
+
+  .add { cursor: pointer; font: inherit; }
+
+  /* in-app toast */
+  .demo-toast { position: absolute; left: 50%; bottom: 58px; transform: translateX(-50%) translateY(8px); background: #0e0f13; border: 1px solid var(--line); color: var(--fg); font-size: 12px; font-weight: 600; padding: 8px 14px; border-radius: 10px; box-shadow: 0 10px 30px -8px rgba(0,0,0,.6); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; white-space: nowrap; z-index: 6; }
+  .demo-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* settings popover */
+  .settings-pop { position: absolute; top: 42px; right: 12px; width: 212px; z-index: 7; background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px 10px; box-shadow: 0 16px 40px -12px rgba(0,0,0,.7); }
+  .settings-pop .sp-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 2px; font-size: 12px; }
+  .settings-pop .sp-row + .sp-row { border-top: 1px solid var(--line); }
+  .settings-pop .sp-sub { font-size: 10px; color: var(--muted); margin-top: 1px; }
+  .settings-pop select { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 7px; padding: 3px 6px; font: inherit; font-size: 11.5px; }
+  .settings-pop .sp-reset { width: 100%; margin-top: 8px; }
+
+  /* ---------- generic section ---------- */
+  section { padding: 72px 0; border-top: 1px solid var(--line); }
+  .eyebrow { color: var(--accent); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; }
+  .sec-title { font-size: clamp(28px, 4vw, 38px); font-weight: 800; margin-top: 12px; }
+  .sec-lead { color: var(--muted); font-size: 18px; margin-top: 14px; max-width: 640px; }
+
+  /* steps */
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 44px; }
+  .step { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; position: relative; }
+  .step .n { width: 30px; height: 30px; border-radius: 9px; background: rgba(217,119,87,0.14); color: var(--accent); display: grid; place-items: center; font-weight: 800; font-size: 15px; margin-bottom: 14px; }
+  .step h3 { font-size: 16px; }
+  .step p { color: var(--muted); font-size: 13.5px; margin: 8px 0 0; }
+  @media (max-width: 860px){ .steps { grid-template-columns: repeat(2,1fr); } }
+  @media (max-width: 480px){ .steps { grid-template-columns: 1fr; } }
+
+  /* features */
+  .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 44px; }
+  .feat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px; transition: border-color .15s, transform .15s; }
+  .feat:hover { border-color: rgba(217,119,87,0.5); transform: translateY(-2px); }
+  .feat .ico { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--card2); border: 1px solid var(--line); margin-bottom: 14px; }
+  .feat .ico svg { width: 21px; height: 21px; stroke: var(--accent); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .feat h3 { font-size: 16.5px; }
+  .feat p { color: var(--muted); font-size: 14px; margin: 8px 0 0; }
+  @media (max-width: 860px){ .feat-grid { grid-template-columns: repeat(2,1fr); } }
+  @media (max-width: 540px){ .feat-grid { grid-template-columns: 1fr; } }
+
+  /* install */
+  .install-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 32px; margin-top: 40px; align-items: start; }
+  @media (max-width: 860px){ .install-grid { grid-template-columns: 1fr; } }
+  .codeblock { background: #0e0f13; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .code-head { display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--line); background: var(--card); }
+  .code-head .dots { display: flex; gap: 6px; }
+  .code-head .dots i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .code-head .ttl { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .copy { margin-left: auto; background: var(--card2); border: 1px solid var(--line); color: var(--muted); font-size: 12px; padding: 5px 11px; border-radius: 7px; cursor: pointer; font-weight: 500; }
+  .copy:hover { color: var(--fg); border-color: var(--muted); }
+  .copy.ok { color: var(--green); border-color: var(--green); }
+  pre { margin: 0; padding: 18px; overflow-x: auto; font: 13.5px/1.7 var(--mono); }
+  pre .c { color: #6f7682; }      /* comment */
+  pre .p { color: var(--accent); }  /* prompt $ */
+  pre .k { color: var(--accent2); } /* command keyword */
+  .req { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .req h3 { font-size: 17px; margin-bottom: 14px; }
+  .req ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+  .req li { display: flex; gap: 11px; font-size: 14px; color: var(--muted); }
+  .req li b { color: var(--fg); font-weight: 600; }
+  .req li .ck { color: var(--green); flex: 0 0 auto; }
+  .note { margin-top: 16px; font-size: 13px; color: var(--muted); background: rgba(106,169,255,0.07); border: 1px solid rgba(106,169,255,0.28); border-radius: 10px; padding: 12px 14px; }
+  .note code, .req code, .sec-lead code { background: #0e0f13; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font: 12.5px var(--mono); color: var(--yellow); }
+
+  /* safety */
+  .safe-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 40px; }
+  @media (max-width: 760px){ .safe-cards { grid-template-columns: 1fr; } }
+  .safe { border-radius: 14px; padding: 22px; border: 1px solid var(--line); background: var(--card); }
+  .safe.mac { border-color: rgba(76,175,125,0.4); }
+  .safe.win { border-color: rgba(216,178,90,0.4); }
+  .safe .tag { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+  .safe.mac .tag { color: var(--green); }
+  .safe.win .tag { color: var(--yellow); }
+  .safe .def { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .safe p { font-size: 13.5px; color: var(--muted); margin: 0; }
+  .safe p b { color: var(--fg); font-weight: 600; }
+  .warnbox { margin-top: 18px; font-size: 14px; color: var(--fg); background: rgba(216,178,90,0.08); border: 1px solid rgba(216,178,90,0.34); border-radius: 12px; padding: 16px 18px; line-height: 1.6; }
+  .warnbox b { color: var(--yellow); }
+
+  /* config table */
+  .cfg-table { margin-top: 36px; width: 100%; border-collapse: collapse; font-size: 14px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .cfg-table th, .cfg-table td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .cfg-table thead th { background: var(--card); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  .cfg-table td:first-child { font-weight: 600; }
+  .cfg-table td:nth-child(2) { color: var(--accent); font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+  .cfg-table td:nth-child(3) { color: var(--muted); }
+  .cfg-table tr:last-child td { border-bottom: 0; }
+  .cfg-table tbody tr:hover { background: rgba(255,255,255,0.015); }
+
+  /* final cta */
+  .final { text-align: center; }
+  .final .box { background: linear-gradient(160deg, var(--card), var(--bg)); border: 1px solid var(--line); border-radius: 20px; padding: 56px 28px; }
+  .final h2 { font-size: clamp(28px, 4.5vw, 42px); font-weight: 800; }
+  .final p { color: var(--muted); font-size: 18px; margin: 14px auto 28px; max-width: 520px; }
+
+  footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--muted); font-size: 13.5px; }
+  .foot-inner { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; justify-content: space-between; }
+  .foot-links { display: flex; gap: 20px; flex-wrap: wrap; }
+  .foot-links a { color: var(--muted); }
+  .foot-links a:hover { color: var(--fg); }
+  .disclaimer { margin-top: 18px; font-size: 12px; opacity: .8; }
+
+  /* reveal on scroll */
+  .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity:1; transform:none; transition:none; } html{scroll-behavior:auto;} }
+</style>
+</head>
+<body>
+<div class="glow" aria-hidden="true"></div>
+
+<!-- ===================== NAV ===================== -->
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="logo" href="#top" style="color:var(--fg)">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#d97757"/><circle cx="32" cy="32" r="15" fill="none" stroke="#fff" stroke-width="6"/></svg>
+      Lea
+    </a>
+    <nav class="nav-links">
+      <a href="#how" class="hide-sm">How it works</a>
+      <a href="#features" class="hide-sm">Features</a>
+      <a href="#install">Install</a>
+      <a href="#safety" class="hide-sm">Safety</a>
+      <a class="nav-star" href="https://github.com/bobby33400/Lea/stargazers" id="navStar" title="Live GitHub stars — star Lea!">
+        <svg class="star-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.26 6.85.78-5.08 4.66 1.39 6.74L12 17.77 5.94 21.2l1.39-6.74L2.25 9.8l6.85-.78z"/></svg>
+        <span class="star-lbl">Stars</span>
+        <span class="star-count tnum" data-star>—</span>
+      </a>
+      <a class="nav-cta" href="https://github.com/bobby33400/Lea">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+<!-- ===================== HERO ===================== -->
+<section class="hero" style="border-top:0">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="pill"><span class="dot"></span> Open source · MIT · macOS / Windows / Linux</span>
+      <h1>Claude that works <span class="accent">while you sleep.</span></h1>
+      <p class="sub">
+        Lea is a menu-bar app that watches your Claude usage and <b>autonomously runs a to-do queue</b>
+        the moment your limit resets. Queue work before bed — wake up to it done.
+      </p>
+      <div class="cta-row">
+        <a class="btn primary" href="#install">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+          Get Lea
+        </a>
+        <a class="btn ghost" href="https://github.com/bobby33400/Lea">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05A9.4 9.4 0 0112 6.84c.85 0 1.71.12 2.51.34 1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.6.69.49A10.06 10.06 0 0022 12.25C22 6.58 17.52 2 12 2z"/></svg>
+          Star on GitHub
+          <span class="star-chip" title="Live star count, updated automatically"><span class="live-dot"></span><span class="star-count tnum" data-star>—</span></span>
+        </a>
+      </div>
+      <div class="hero-meta">
+        <span>⚡ <b>Reset-aware</b> retry loop</span>
+        <span>🔒 <b>Sandboxed</b> by default on macOS</span>
+        <span>💤 Keeps your Mac <b>awake</b> for overnight runs</span>
+      </div>
+    </div>
+
+    <!-- fully interactive demo of the real tray UI — add tasks & watch Claude work -->
+    <div class="mock-stage reveal">
+      <div class="demo-hint"><span class="live-dot"></span> Live demo — add a task and watch Claude work</div>
+      <div class="menubar">
+        <span>􀙇</span><span>Wed 2:14</span>
+        <span class="tray"><span class="ring"></span><span id="tray-time">◷ 2:14</span> · <span id="tray-count">2</span></span>
+      </div>
+      <div class="app" id="demoApp">
+        <div class="card-top">
+          <div class="brand-row">
+            <div class="brand"><span class="bdot"></span> Lea <span class="status-chip" id="demoStatus">ready</span></div>
+            <button class="gear" id="demoGear" title="Settings" aria-label="Settings">⚙</button>
+          </div>
+          <div class="countdown">
+            <div class="big tnum" id="cd">02:14:30</div>
+            <div class="lbl" id="cdLabel">until your limit resets</div>
+          </div>
+          <div class="bar"><div class="bar-fill" id="demoWinBar" style="width:62%"></div></div>
+          <div class="stats"><span id="demoWinPct">62% of window used</span><span id="demoBurn">~38.4k tok/h</span></div>
+          <div class="models">
+            <div class="mrow"><span class="mname">Opus</span><span class="mbar"><span class="mbarfill" id="demoOpusBar" style="width:71%"></span></span><span class="mval" id="demoOpusVal">812k</span></div>
+            <div class="mrow"><span class="mname">Sonnet</span><span class="mbar"><span class="mbarfill" id="demoSonnetBar" style="width:24%"></span></span><span class="mval" id="demoSonnetVal">271k</span></div>
+          </div>
+
+          <div class="settings-pop" id="demoSettings" hidden></div>
+        </div>
+
+        <div class="wait-banner" id="demoWait" hidden></div>
+
+        <div class="list" id="demoList">
+          <!-- no-JS fallback (replaced by the interactive renderer below) -->
+          <div class="task running">
+            <div class="task-main">
+              <div class="task-title">Refactor the auth module</div>
+              <div class="task-meta"><span class="badge running">running</span><span class="task-sub">~/projects/School</span></div>
+              <div class="activity">
+                <div class="act">Read src/auth/session.ts</div>
+                <div class="act">Edit src/auth/guard.ts</div>
+                <div class="act cur">Running test suite…</div>
+              </div>
+            </div>
+          </div>
+          <div class="task">
+            <div class="task-main">
+              <div class="task-title">Write integration tests for the API</div>
+              <div class="task-meta"><span class="badge queued">queued</span><span class="task-sub">retries at reset</span></div>
+            </div>
+          </div>
+          <div class="task done">
+            <div class="task-main">
+              <div class="task-title">Security audit of RLS policies</div>
+              <div class="task-meta"><span class="badge done">done</span><span class="task-sub">2:03 AM</span></div>
+              <div class="followups">
+                <div class="fu-title">▸ THINGS FOR YOU TO DO</div>
+                <div class="fu-item">Apply the migration with <code>supabase db push</code></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="composer" id="demoComposer">
+          <textarea id="demoInput" rows="2" placeholder="What should Claude do?  e.g. Fix the failing tests and commit"></textarea>
+          <div class="composer-row"><div class="chips" id="demoFolders"></div></div>
+          <div class="composer-row end">
+            <button class="mini ghost" id="demoCancel" type="button">Cancel</button>
+            <button class="mini primary" id="demoQueue" type="button">Add to queue</button>
+          </div>
+        </div>
+
+        <div class="app-foot">
+          <button class="add" id="demoAdd" type="button">＋ Add task</button>
+          <span class="tog">Auto-run <button class="switch" id="demoSwitch" type="button" role="switch" aria-checked="true" aria-label="Auto-run"></button></span>
+        </div>
+
+        <div class="demo-toast" id="demoToast" hidden></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== HOW IT WORKS ===================== -->
+<section id="how">
+  <div class="wrap">
+    <span class="eyebrow">The autonomous loop</span>
+    <h2 class="sec-title">Queue it tonight. Done by morning.</h2>
+    <p class="sec-lead">Lea reads your usage from Claude Code's local transcripts, runs the next task headlessly, and when the limit is hit it simply waits for the reset and picks up where it left off.</p>
+    <div class="steps">
+      <div class="step reveal">
+        <div class="n">1</div>
+        <h3>Queue your to-dos</h3>
+        <p>Each task is just an instruction plus a project folder. Add as many as you like and leave Lea running.</p>
+      </div>
+      <div class="step reveal">
+        <div class="n">2</div>
+        <h3>It runs headlessly</h3>
+        <p>The runner takes the first task and runs <code style="font-family:var(--mono);font-size:12px;color:var(--yellow)">claude -p</code> in an isolated sandbox while you have capacity.</p>
+      </div>
+      <div class="step reveal">
+        <div class="n">3</div>
+        <h3>Hits the limit? It waits</h3>
+        <p>On a usage-limit, the task is requeued and Lea sleeps until the exact reset time — then retries automatically.</p>
+      </div>
+      <div class="step reveal">
+        <div class="n">4</div>
+        <h3>Wake up to results</h3>
+        <p>Finished tasks move to <b>Done</b> with full logs, a change report, and a list of follow-ups for you.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== FEATURES ===================== -->
+<section id="features">
+  <div class="wrap">
+    <span class="eyebrow">Features</span>
+    <h2 class="sec-title">Everything you need to run Claude unattended.</h2>
+    <div class="feat-grid">
+      <div class="feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <h3>Usage &amp; reset tracking</h3>
+        <p>Live token count, burn rate, value used, and a precise countdown to your next usage-window reset — read straight from your local Claude transcripts via <code>ccusage</code>.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg></div>
+        <h3>Autonomous task queue</h3>
+        <p>Line up a to-do list of instructions, each scoped to a project folder. Lea works through them one by one, no typing required.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/></svg></div>
+        <h3>Reset-aware retry</h3>
+        <p>When a run hits the limit, the task goes back to the front of the queue and resumes at the real reset time — looping through your list overnight.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 4.5-3.4 7.6-8 9-4.6-1.4-8-4.5-8-9V7l8-4z"/></svg></div>
+        <h3>Sandboxed runs</h3>
+        <p>Every run is isolated so an unattended mistake can't wreck your machine. macOS uses a built-in Seatbelt sandbox that confines writes to the project folder.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></div>
+        <h3>Keeps your computer awake</h3>
+        <p>Prevents sleep — but only while tasks are pending — so overnight runs actually happen instead of stalling on a sleeping laptop.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></div>
+        <h3>Follow-ups for you</h3>
+        <p>When a task needs something only you can do — push to a remote, apply a migration, rotate a key — Lea surfaces it and fires a desktop notification.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></div>
+        <h3>Per-task change reports</h3>
+        <p>Each run writes a snapshot diff of what was added, modified, and deleted into <code>Lea_Reports/</code> in your project — so you can review before trusting it.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 3 6-7"/><path d="M3 21h18"/></svg></div>
+        <h3>Per-model breakdown</h3>
+        <p>See exactly how your window is split across Opus, Sonnet, and Haiku, with live bars and token totals per model.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <h3>Chat &amp; reply on a task</h3>
+        <p>Pick up any finished task and keep going — Lea continues Claude's own session with <code>--resume</code>, so context is preserved.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0-9-9"/><path d="M12 8v4l3 2"/><path d="M3 12a4 4 0 0 0 4-4"/></svg></div>
+        <h3>Efficient "away" mode</h3>
+        <p>Switch to a cheaper model when you're idle or asleep, plus live progress streaming so you can watch what Claude is doing in real time.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== INSTALL ===================== -->
+<section id="install">
+  <div class="wrap">
+    <span class="eyebrow">Download &amp; install</span>
+    <h2 class="sec-title">Up and running in four commands.</h2>
+    <p class="sec-lead">Lea is open source. Clone it, install, and start — a small ring icon appears in your menu bar.</p>
+
+    <div class="install-grid">
+      <div class="reveal">
+        <div class="codeblock">
+          <div class="code-head">
+            <span class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></span>
+            <span class="ttl">Terminal — install from source</span>
+            <button class="copy" data-copy="git clone https://github.com/bobby33400/Lea.git&#10;cd Lea&#10;npm install&#10;npm start">Copy</button>
+          </div>
+<pre><code><span class="c"># 1. Clone the repo</span>
+<span class="p">$</span> <span class="k">git</span> clone https://github.com/bobby33400/Lea.git
+<span class="p">$</span> <span class="k">cd</span> Lea
+
+<span class="c"># 2. Install dependencies</span>
+<span class="p">$</span> <span class="k">npm</span> install
+
+<span class="c"># 3. Launch the menu-bar app</span>
+<span class="p">$</span> <span class="k">npm</span> start</code></pre>
+        </div>
+        <div class="note">
+          <b>Prefer a prebuilt installer?</b> Pushing a <code>v*</code> tag (or running the GitHub <b>build</b> workflow) produces a <code>.dmg</code>/<code>.zip</code> for macOS, an <code>.exe</code> for Windows, and an <code>.AppImage</code> for Linux. Or build one locally with <code>npm run dist</code>.
+        </div>
+      </div>
+
+      <div class="req reveal">
+        <h3>Requirements</h3>
+        <ul>
+          <li><span class="ck">✓</span><span><b>macOS, Windows, or Linux</b> with <b>Node 18+</b>.</span></li>
+          <li><span class="ck">✓</span><span>The <b><a href="https://docs.claude.com/en/docs/claude-code">claude CLI</a></b> installed and logged in to your Claude subscription. Verify with <code>claude --version</code> and <code>claude -p "hi"</code>.</span></li>
+          <li><span class="ck">✓</span><span><b>Docker</b> <span class="muted">(optional)</span> — only if you want sandboxed runs on Windows or Linux.</span></li>
+        </ul>
+        <div class="note" style="background:rgba(217,119,87,0.07);border-color:rgba(217,119,87,0.3)">
+          Lea uses <b>your own</b> Claude account and respects your own limits. It is not a separate subscription.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== SAFETY ===================== -->
+<section id="safety">
+  <div class="wrap">
+    <span class="eyebrow">Safety model</span>
+    <h2 class="sec-title">Unattended Claude is powerful — and risky.</h2>
+    <p class="sec-lead">Lea runs Claude with <code>--permission-mode bypassPermissions</code> so headless runs never block on a prompt. That's exactly why isolation matters — and why Lea defaults to the safest option for your platform.</p>
+
+    <div class="safe-cards">
+      <div class="safe mac reveal">
+        <div class="tag">macOS — Seatbelt sandbox <span class="muted" style="font-weight:500">(default)</span></div>
+        <div class="def">Built in. Zero setup.</div>
+        <p>Each run is wrapped in <b>sandbox-exec</b>. File <b>writes</b> are confined to the task's project folder; <b>~/.ssh</b>, <b>~/.aws</b>, and Keychains are hard-blocked. Reads, network, and commands stay allowed so Claude's tools still work.</p>
+      </div>
+      <div class="safe win reveal">
+        <div class="tag">Windows / Linux — Docker opt-in</div>
+        <div class="def">No lightweight built-in sandbox exists.</div>
+        <p>By default Lea runs Claude directly <b>and shows a warning</b>. For real isolation, enable the bundled <b>Docker backend</b> — it mounts only the project folder writable. Build the image with <code style="font-size:12px">docker build -t lea-claude:latest docker/</code>.</p>
+      </div>
+    </div>
+
+    <div class="warnbox reveal">
+      <b>⚠ Please start small.</b> Begin with low-stakes tasks and review the logs before trusting Lea with anything important. Use per-project git commits so every change is reversible.
+    </div>
+  </div>
+</section>
+
+<!-- ===================== CONFIG ===================== -->
+<section id="config">
+  <div class="wrap">
+    <span class="eyebrow">Configuration</span>
+    <h2 class="sec-title">Tune it from the ⚙ Settings panel.</h2>
+    <table class="cfg-table reveal">
+      <thead><tr><th>Setting</th><th>Default</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>Auto-run</td><td>on</td><td>Master switch for autonomous execution</td></tr>
+        <tr><td>Sandbox backend</td><td>auto</td><td>Seatbelt on macOS, none elsewhere — or force Docker / none</td></tr>
+        <tr><td>Keep computer awake</td><td>on</td><td>Prevent sleep while tasks are pending</td></tr>
+        <tr><td>Quiet hours</td><td>off</td><td>Pause auto-run during a chosen time window</td></tr>
+        <tr><td>Default model</td><td>opus</td><td>Model used when a task doesn't specify one</td></tr>
+        <tr><td>Task timeout</td><td>30 min</td><td>Kill a task that runs too long</td></tr>
+        <tr><td>Max retries</td><td>2</td><td>Retries for non-limit errors</td></tr>
+        <tr><td>Token budget / block</td><td>off</td><td>Pause after N tokens per usage window</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===================== FINAL CTA ===================== -->
+<section class="final">
+  <div class="wrap">
+    <div class="box reveal">
+      <h2>Let Claude work the night shift.</h2>
+      <p>Free, open source, and yours to inspect. Clone it and queue your first task tonight.</p>
+      <div class="cta-row" style="justify-content:center">
+        <a class="btn primary" href="https://github.com/bobby33400/Lea">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05A9.4 9.4 0 0112 6.84c.85 0 1.71.12 2.51.34 1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.6.69.49A10.06 10.06 0 0022 12.25C22 6.58 17.52 2 12 2z"/></svg>
+          View on GitHub
+        </a>
+        <a class="btn ghost" href="#install">Read the install guide</a>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ===================== FOOTER ===================== -->
+<footer>
+  <div class="wrap">
+    <div class="foot-inner">
+      <a class="logo" href="#top" style="color:var(--fg)">
+        <svg viewBox="0 0 64 64" style="width:24px;height:24px" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#d97757"/><circle cx="32" cy="32" r="15" fill="none" stroke="#fff" stroke-width="6"/></svg>
+        Lea
+      </a>
+      <div class="foot-links">
+        <a href="https://github.com/bobby33400/Lea">GitHub</a>
+        <a href="https://github.com/bobby33400/Lea/blob/main/README.md">Docs</a>
+        <a href="https://github.com/bobby33400/Lea/blob/main/CONTRIBUTING.md">Contributing</a>
+        <a href="https://github.com/bobby33400/Lea/issues">Issues</a>
+        <a href="https://github.com/bobby33400/Lea/blob/main/LICENSE">MIT License</a>
+      </div>
+    </div>
+    <p class="disclaimer">© Lea contributors · Released under the MIT License. Not affiliated with Anthropic. "Claude" is a trademark of Anthropic.</p>
+  </div>
+</footer>
+
+<script>
+  // ----- copy buttons -----
+  document.querySelectorAll('.copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-copy').replace(/&#10;/g, '\n');
+      navigator.clipboard.writeText(text).then(function () {
+        var old = btn.textContent;
+        btn.textContent = '✓ Copied';
+        btn.classList.add('ok');
+        setTimeout(function () { btn.textContent = old; btn.classList.remove('ok'); }, 1600);
+      });
+    });
+  });
+
+  // ----- live countdown in the mockup -----
+  (function () {
+    var cd = document.getElementById('cd');
+    var tray = document.getElementById('tray-time');
+    if (!cd) return;
+    var total = 2 * 3600 + 14 * 60 + 30; // 02:14:30
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    function tick() {
+      var h = Math.floor(total / 3600);
+      var m = Math.floor((total % 3600) / 60);
+      var s = total % 60;
+      cd.textContent = pad(h) + ':' + pad(m) + ':' + pad(s);
+      if (tray) tray.textContent = '◷ ' + h + ':' + pad(m);
+      total = total > 0 ? total - 1 : 2 * 3600 + 14 * 60 + 30;
+    }
+    tick();
+    setInterval(tick, 1000);
+  })();
+
+  // ----- interactive Lea demo: the hero mockup is fully playable -----
+  (function () {
+    var app = document.getElementById('demoApp');
+    if (!app) return;
+
+    var listEl   = document.getElementById('demoList');
+    var trayCnt  = document.getElementById('tray-count');
+    var statusEl = document.getElementById('demoStatus');
+    var switchEl = document.getElementById('demoSwitch');
+    var toastEl  = document.getElementById('demoToast');
+    var waitEl   = document.getElementById('demoWait');
+    var composer = document.getElementById('demoComposer');
+    var input    = document.getElementById('demoInput');
+    var foldersEl= document.getElementById('demoFolders');
+    var gearEl   = document.getElementById('demoGear');
+    var setEl    = document.getElementById('demoSettings');
+    var CEIL = 1150; // token ceiling used to scale the per-model bars
+
+    var FOLDERS = ['~/projects/School', '~/code/website', '~/work/api', '~/dev/lea'];
+    var selectedFolder = FOLDERS[0];
+
+    var gen = 0;            // bumps to cancel in-flight simulated runs (e.g. on reset)
+    var idc = 0;
+    var waitTimer = null;
+    function uid() { return 't' + (++idc); }
+    function schedule(fn, ms) { var g = gen; return setTimeout(function () { if (g === gen) fn(); }, ms); }
+
+    var state = {
+      autoRun: true, busy: false, waiting: false, away: false, limitUsedOnce: false,
+      win: 0.62, opus: 812, sonnet: 271, burn: 38.4, tasks: []
+    };
+
+    /* ---------- tiny DOM helpers ---------- */
+    function elc(tag, cls, txt) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (txt != null) e.textContent = txt;
+      return e;
+    }
+    function truncate(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+    function fmtClock(d) {
+      var h = d.getHours(), m = d.getMinutes(), ap = h >= 12 ? 'PM' : 'AM';
+      h = h % 12; if (h === 0) h = 12;
+      return h + ':' + (m < 10 ? '0' : '') + m + ' ' + ap;
+    }
+    // render text with inline `code` spans (mirrors the app's follow-up rendering)
+    function inlineCode(text) {
+      var frag = document.createDocumentFragment();
+      String(text).split('`').forEach(function (seg, i) {
+        if (i % 2 === 1) frag.appendChild(elc('code', null, seg));
+        else if (seg) frag.appendChild(document.createTextNode(seg));
+      });
+      return frag;
+    }
+    function followupsBox(item) {
+      var box = elc('div', 'followups');
+      box.appendChild(elc('div', 'fu-title', '▸ THINGS FOR YOU TO DO'));
+      var line = elc('div', 'fu-item');
+      line.appendChild(inlineCode(item));
+      box.appendChild(line);
+      return box;
+    }
+
+    /* ---------- simulated activity & follow-ups ---------- */
+    function buildActivity(task) {
+      var f = task.folder.split('/').pop();
+      var t = (task.title || '').toLowerCase();
+      var lines = ['📖 Read ' + f + '/README.md'];
+      if (/test|spec/.test(t)) { lines.push('✏️ Edit ' + f + '/tests/api.spec.ts'); lines.push('⚙ Running the test suite…'); }
+      else if (/fix|bug|fail/.test(t)) { lines.push('🔍 Grep for the failing call site'); lines.push('✏️ Edit ' + f + '/src/index.ts'); lines.push('⚙ Re-running tests…'); }
+      else if (/doc|readme|write|wording/.test(t)) { lines.push('✏️ Edit ' + f + '/README.md'); lines.push('📝 Polishing the wording…'); }
+      else if (/refactor|clean|tidy/.test(t)) { lines.push('✏️ Edit ' + f + '/src/core.ts'); lines.push('✏️ Edit ' + f + '/src/utils.ts'); lines.push('⚙ Running the test suite…'); }
+      else if (/audit|security|review/.test(t)) { lines.push('🔍 Scanning for vulnerable patterns'); lines.push('✏️ Edit ' + f + '/src/policy.ts'); }
+      else { lines.push('✏️ Edit ' + f + '/src/main.ts'); lines.push('⚙ Verifying the changes…'); }
+      lines.push('📝 Writing the change report…');
+      return lines;
+    }
+    var FOLLOWUPS = [
+      'Push the branch when you\'re happy: `git push`',
+      'Review the diff in `Lea_Reports/` before merging',
+      'Apply the migration with `supabase db push`',
+      'Rotate the API key in your provider dashboard',
+      'Open a PR and request a review'
+    ];
+    function pickFollowup() { return Math.random() < 0.55 ? FOLLOWUPS[Math.floor(Math.random() * FOLLOWUPS.length)] : ''; }
+
+    /* ---------- rendering ---------- */
+    function statusText() {
+      var s;
+      if (state.busy) s = 'running task';
+      else if (!state.autoRun) s = 'auto-run off';
+      else if (state.waiting) s = 'waiting for reset';
+      else if (state.tasks.some(function (t) { return t.status === 'queued'; })) s = 'ready';
+      else s = 'idle';
+      return s + (state.away ? ' 💤' : '');
+    }
+    function renderStatus() {
+      statusEl.textContent = statusText();
+      statusEl.className = 'status-chip' + (state.busy ? ' run' : state.waiting ? ' wait' : '');
+      var active = state.tasks.filter(function (t) { return t.status === 'queued' || t.status === 'running'; }).length;
+      trayCnt.textContent = active;
+      switchEl.className = 'switch' + (state.autoRun ? '' : ' off');
+      switchEl.setAttribute('aria-checked', state.autoRun ? 'true' : 'false');
+    }
+    function renderUsage() {
+      document.getElementById('demoWinBar').style.width = Math.round(state.win * 100) + '%';
+      document.getElementById('demoWinPct').textContent = Math.round(state.win * 100) + '% of window used';
+      document.getElementById('demoBurn').textContent = '~' + state.burn.toFixed(1) + 'k tok/h';
+      document.getElementById('demoOpusVal').textContent = Math.round(state.opus) + 'k';
+      document.getElementById('demoSonnetVal').textContent = Math.round(state.sonnet) + 'k';
+      document.getElementById('demoOpusBar').style.width = Math.min(96, state.opus / CEIL * 100) + '%';
+      document.getElementById('demoSonnetBar').style.width = Math.min(96, state.sonnet / CEIL * 100) + '%';
+    }
+    function iconBtn(glyph, extra, title, fn) {
+      var b = elc('button', 'tact' + (extra ? ' ' + extra : ''), glyph);
+      b.type = 'button'; b.title = title; b.setAttribute('aria-label', title);
+      b.onclick = function (e) { e.stopPropagation(); fn(); };
+      return b;
+    }
+    function taskRow(t) {
+      var row = elc('div', 'task ' + t.status);
+      var main = elc('div', 'task-main');
+      main.appendChild(elc('div', 'task-title', t.title));
+      var meta = elc('div', 'task-meta');
+      meta.appendChild(elc('span', 'badge ' + t.status, t.status));
+      if (t.status === 'done' && t.doneAt) meta.appendChild(elc('span', 'task-sub', t.doneAt));
+      else if (t.retry) meta.appendChild(elc('span', 'task-sub retry', 'retries at reset'));
+      else meta.appendChild(elc('span', 'task-sub', t.folder));
+      main.appendChild(meta);
+
+      if (t.status === 'running') {
+        var act = elc('div', 'activity');
+        var lines = (t.activity && t.activity.length) ? t.activity : ['• starting…'];
+        lines.forEach(function (l, i) { act.appendChild(elc('div', 'act' + (i === lines.length - 1 ? ' cur' : ''), l)); });
+        main.appendChild(act);
+      }
+      if (t.status === 'done' && t.followup) main.appendChild(followupsBox(t.followup));
+      row.appendChild(main);
+
+      var actions = elc('div', 'task-actions');
+      if (t.status === 'queued') {
+        actions.appendChild(iconBtn('▶', 'run', 'Run now', function () { runNow(t); }));
+        actions.appendChild(iconBtn('▲', '', 'Move up', function () { move(t, -1); }));
+        actions.appendChild(iconBtn('▼', '', 'Move down', function () { move(t, 1); }));
+      }
+      actions.appendChild(iconBtn('🗑', 'del', 'Delete', function () { del(t); }));
+      row.appendChild(actions);
+      return row;
+    }
+    function renderList() {
+      listEl.innerHTML = '';
+      if (!state.tasks.length) {
+        listEl.appendChild(elc('div', 'empty', 'No tasks yet.\nClick ＋ Add task to queue work for Claude — it runs automatically the moment your tokens reset.'));
+        return;
+      }
+      var active = state.tasks.filter(function (t) { return t.status !== 'done'; });
+      var done = state.tasks.filter(function (t) { return t.status === 'done'; });
+      active.forEach(function (t) { listEl.appendChild(taskRow(t)); });
+      done.forEach(function (t) { listEl.appendChild(taskRow(t)); });
+    }
+    function render() { renderStatus(); renderUsage(); renderList(); }
+
+    /* ---------- toast & banner ---------- */
+    var toastT;
+    function toast(msg) {
+      toastEl.textContent = msg; toastEl.hidden = false;
+      void toastEl.offsetWidth; toastEl.classList.add('show');
+      clearTimeout(toastT);
+      toastT = setTimeout(function () {
+        toastEl.classList.remove('show');
+        setTimeout(function () { toastEl.hidden = true; }, 250);
+      }, 2200);
+    }
+    function showWait(secs) {
+      waitEl.hidden = false; waitEl.innerHTML = '';
+      waitEl.appendChild(elc('span', null, '⏸'));
+      var txt = elc('div');
+      txt.appendChild(elc('b', null, 'Usage limit hit. '));
+      txt.appendChild(document.createTextNode('Lea waits for the reset, then retries automatically'));
+      txt.appendChild(document.createTextNode(typeof secs === 'number' ? ' — demo resumes in ' + secs + 's.' : '.'));
+      waitEl.appendChild(txt);
+    }
+    function hideWait() { waitEl.hidden = true; waitEl.innerHTML = ''; }
+
+    /* ---------- the simulated runner ---------- */
+    function bumpUsage() {
+      state.opus += 30 + Math.floor(Math.random() * 70);
+      if (Math.random() < 0.5) state.sonnet += 15 + Math.floor(Math.random() * 50);
+      state.win = Math.min(0.96, state.win + 0.015 + Math.random() * 0.03);
+      state.burn = 30 + Math.random() * 22;
+    }
+    function maybeStart() {
+      if (state.busy || state.waiting || !state.autoRun) return;
+      var next = state.tasks.find(function (t) { return t.status === 'queued'; });
+      if (next) startTask(next);
+    }
+    function startTask(task) {
+      state.busy = true;
+      task.status = 'running'; task.retry = false; task.activity = [];
+      var steps = buildActivity(task), i = 0;
+      render();
+      (function next() {
+        if (task.status !== 'running') return;
+        if (i < steps.length) {
+          task.activity.push(steps[i]); task.activity = task.activity.slice(-3); i++;
+          renderList();
+          schedule(next, 850 + Math.floor(Math.random() * 750));
+        } else {
+          finishTask(task, true);
+        }
+      })();
+    }
+    function finishTask(task, allowLimit) {
+      var anyDone = state.tasks.some(function (t) { return t.status === 'done'; });
+      if (allowLimit && !state.limitUsedOnce && anyDone && Math.random() < 0.5) {
+        state.limitUsedOnce = true; return hitLimit(task);
+      }
+      task.status = 'done'; task.activity = []; task.retry = false;
+      task.doneAt = '✓ ' + fmtClock(new Date());
+      task.followup = pickFollowup();
+      bumpUsage();
+      state.busy = false;
+      render();
+      toast('✓ ' + truncate(task.title, 26) + ' — done');
+      schedule(maybeStart, 800);
+    }
+    function hitLimit(task) {
+      task.status = 'queued'; task.retry = true; task.activity = [];
+      state.busy = false; state.waiting = true;
+      render();
+      var secs = 6; showWait(secs);
+      waitTimer = setInterval(function () {
+        secs--; showWait(secs);
+        if (secs <= 0) {
+          clearInterval(waitTimer); waitTimer = null;
+          state.waiting = false; hideWait(); render(); maybeStart();
+        }
+      }, 1000);
+    }
+
+    /* ---------- actions ---------- */
+    function runNow(task) {
+      if (state.busy) return toast('A task is already running');
+      if (state.waiting) return toast('Waiting for the usage window to reset');
+      startTask(task);
+    }
+    function move(task, dir) {
+      var i = state.tasks.indexOf(task), j = i + dir;
+      if (j < 0 || j >= state.tasks.length) return;
+      state.tasks.splice(i, 1); state.tasks.splice(j, 0, task);
+      renderList();
+    }
+    function del(task) {
+      var wasRunning = task.status === 'running';
+      state.tasks = state.tasks.filter(function (t) { return t !== task; });
+      if (wasRunning) { state.busy = false; gen++; }
+      render();
+      if (wasRunning) schedule(maybeStart, 400);
+    }
+
+    /* ---------- composer ---------- */
+    function openComposer() { composer.classList.add('open'); setTimeout(function () { input.focus(); }, 60); }
+    function closeComposer() { composer.classList.remove('open'); }
+    function queueFromComposer() {
+      var v = (input.value || '').trim();
+      if (!v) { input.focus(); composer.classList.remove('shake'); void composer.offsetWidth; composer.classList.add('shake'); return; }
+      state.tasks.push({ id: uid(), title: v, folder: selectedFolder, status: 'queued' });
+      input.value = ''; closeComposer(); render();
+      toast('＋ Added to queue'); schedule(maybeStart, 450);
+    }
+    FOLDERS.forEach(function (f, i) {
+      var c = elc('button', 'chip' + (i === 0 ? ' sel' : ''), f);
+      c.type = 'button';
+      c.onclick = function () {
+        selectedFolder = f;
+        Array.prototype.forEach.call(foldersEl.children, function (ch) { ch.classList.remove('sel'); });
+        c.classList.add('sel');
+      };
+      foldersEl.appendChild(c);
+    });
+
+    /* ---------- settings popover ---------- */
+    function spToggle(label, sub, on, fn) {
+      var row = elc('div', 'sp-row');
+      var left = elc('div');
+      left.appendChild(elc('div', null, label));
+      if (sub) left.appendChild(elc('div', 'sp-sub', sub));
+      var sw = elc('button', 'switch' + (on ? '' : ' off'));
+      sw.type = 'button';
+      sw.onclick = function () { on = !on; sw.className = 'switch' + (on ? '' : ' off'); fn(on); };
+      row.appendChild(left); row.appendChild(sw);
+      return row;
+    }
+    function buildSettings() {
+      setEl.innerHTML = '';
+      setEl.appendChild(spToggle('Auto-run', 'Run queued tasks automatically', state.autoRun, function (v) {
+        state.autoRun = v; renderStatus(); if (v) maybeStart();
+      }));
+      setEl.appendChild(spToggle('Efficient away mode', 'Cheaper model while you\'re idle', state.away, function (v) {
+        state.away = v; renderStatus();
+      }));
+      setEl.appendChild(spToggle('Keep computer awake', 'While tasks are pending', true, function () {}));
+      var reset = elc('button', 'mini ghost sp-reset', '↺ Reset demo');
+      reset.type = 'button';
+      reset.onclick = function () { closeSettings(); resetDemo(); };
+      setEl.appendChild(reset);
+    }
+    function openSettings() { buildSettings(); setEl.hidden = false; gearEl.classList.add('open'); }
+    function closeSettings() { setEl.hidden = true; gearEl.classList.remove('open'); }
+
+    /* ---------- reset / seed ---------- */
+    function resetDemo() {
+      gen++; if (waitTimer) { clearInterval(waitTimer); waitTimer = null; }
+      state.busy = false; state.waiting = false; state.limitUsedOnce = false; hideWait();
+      state.win = 0.62; state.opus = 812; state.sonnet = 271; state.burn = 38.4;
+      state.tasks = []; idc = 0; closeComposer();
+      seed(); render(); toast('↺ Demo reset');
+    }
+    function seed() {
+      state.tasks = [
+        { id: uid(), title: 'Refactor the auth module', folder: '~/projects/School', status: 'running',
+          activity: ['📖 Read src/auth/session.ts', '✏️ Edit src/auth/guard.ts', '⚙ Running the test suite…'] },
+        { id: uid(), title: 'Write integration tests for the API', folder: '~/work/api', status: 'queued', retry: true },
+        { id: uid(), title: 'Security audit of RLS policies', folder: '~/projects/School', status: 'done',
+          doneAt: '✓ 2:03 AM', followup: 'Apply the migration with `supabase db push`' }
+      ];
+      state.busy = true;
+      // let the already-running seed task finish on its own, then the runner takes over
+      schedule(function () { finishTask(state.tasks[0], false); }, 3200);
+    }
+
+    /* ---------- wire up ---------- */
+    document.getElementById('demoAdd').onclick = function () {
+      composer.classList.contains('open') ? closeComposer() : openComposer();
+    };
+    document.getElementById('demoCancel').onclick = closeComposer;
+    document.getElementById('demoQueue').onclick = queueFromComposer;
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); queueFromComposer(); }
+      else if (e.key === 'Escape') { closeComposer(); }
+    });
+    switchEl.onclick = function () {
+      state.autoRun = !state.autoRun; renderStatus();
+      toast(state.autoRun ? 'Auto-run on' : 'Auto-run paused');
+      if (state.autoRun) maybeStart();
+    };
+    gearEl.onclick = function (e) {
+      e.stopPropagation();
+      setEl.hidden ? openSettings() : closeSettings();
+    };
+    document.addEventListener('click', function (e) {
+      if (!setEl.hidden && !setEl.contains(e.target) && e.target !== gearEl) closeSettings();
+    });
+
+    seed();
+    render();
+  })();
+
+  // ----- live GitHub star tracker -----
+  (function () {
+    var REPO = 'bobby33400/Lea';
+    var API = 'https://api.github.com/repos/' + REPO;
+    var CACHE_KEY = 'lea-stars';
+    var POLL_MS = 120000; // 2 min — stays safely under GitHub's 60 req/hr unauthenticated limit
+    var els = document.querySelectorAll('[data-star]');
+    if (!els.length) return;
+
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var shown = 0;   // value currently painted on screen
+    var raf = null;
+
+    function fmt(n) { return n.toLocaleString('en-US'); }
+    function render(n) { els.forEach(function (el) { el.textContent = fmt(n); }); }
+
+    function bump() {
+      els.forEach(function (el) {
+        el.classList.remove('bump');
+        void el.offsetWidth;        // force reflow so the animation restarts
+        el.classList.add('bump');
+      });
+    }
+
+    function animateTo(target) {
+      if (typeof target !== 'number' || target === shown) { shown = target; render(target); return; }
+      if (reduce) { shown = target; render(target); bump(); return; }
+      if (raf) cancelAnimationFrame(raf);
+      var from = shown, start = null, dur = 850;
+      function step(ts) {
+        if (start === null) start = ts;
+        var p = Math.min(1, (ts - start) / dur);
+        var eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+        render(Math.round(from + (target - from) * eased));
+        if (p < 1) { raf = requestAnimationFrame(step); }
+        else { shown = target; bump(); }
+      }
+      raf = requestAnimationFrame(step);
+    }
+
+    // paint the last known value instantly so there's no "—" flash on reload
+    try {
+      var cached = parseInt(localStorage.getItem(CACHE_KEY), 10);
+      if (!isNaN(cached)) { shown = cached; render(cached); }
+    } catch (e) {}
+
+    function fetchStars() {
+      fetch(API, { headers: { 'Accept': 'application/vnd.github+json' } })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (d) {
+          var n = d.stargazers_count;
+          if (typeof n !== 'number') return;
+          try { localStorage.setItem(CACHE_KEY, String(n)); } catch (e) {}
+          animateTo(n);
+        })
+        .catch(function () { /* offline / rate-limited: keep the cached value */ });
+    }
+
+    fetchStars();
+    setInterval(fetchStars, POLL_MS);
+  })();
+
+  // ----- reveal on scroll -----
+  (function () {
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) { els.forEach(function (e) { e.classList.add('in'); }); return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } });
+    }, { threshold: 0.12 });
+    els.forEach(function (e) { io.observe(e); });
+  })();
+</script>
+</body>
+</html>
