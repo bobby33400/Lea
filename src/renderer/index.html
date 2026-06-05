@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline' file:; img-src file: data:; script-src file:;"
+    />
+    <link rel="stylesheet" href="style.css" />
+    <title>Lea</title>
+  </head>
+  <body>
+    <header id="usage" class="card">
+      <div class="row between">
+        <div class="brand"><span class="dot"></span> Lea</div>
+        <div class="muted small" id="u-status">starting…</div>
+      </div>
+      <div class="countdown">
+        <div class="big" id="u-countdown">—:—</div>
+        <div class="muted small" id="u-countlabel">until reset</div>
+      </div>
+      <div class="bar"><div class="bar-fill" id="u-bar"></div></div>
+      <div class="row between small stats">
+        <span id="u-model">—</span>
+        <span id="u-tokens">0 tokens</span>
+        <span id="u-cost">$0.00</span>
+      </div>
+    </header>
+
+    <main id="tasks" class="list"></main>
+
+    <footer id="bottombar">
+      <button id="btn-add" class="primary">＋ Task</button>
+      <label class="toggle" title="Master switch for autonomous execution">
+        <input type="checkbox" id="t-autorun" /> Auto-run
+      </label>
+      <button id="btn-settings" title="Settings">⚙</button>
+    </footer>
+
+    <div id="overlay" class="overlay hidden"></div>
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

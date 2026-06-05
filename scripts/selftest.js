@@ -1,0 +1,155 @@
+'use strict';
+/* Plain-node smoke tests for the pure logic (no electron, no token spend). */
+const assert = require('assert');
+const { buildSeatbeltProfile, buildCommand, DOCKER_WORKDIR } = require('../src/sandbox');
+const { parseCcusageBlocks, classifyClaudeResult } = require('../src/classify');
+
+let n = 0;
+const ok = (name) => {
+  n++;
+  console.log(`  ok ${n} - ${name}`);
+};
+
+const base = {
+  claudeBin: '/opt/homebrew/bin/claude',
+  prompt: 'refactor the parser',
+  cwd: '/Users/u/proj',
+  model: 'opus',
+  fallbackModel: 'sonnet',
+  permissionMode: 'bypassPermissions',
+};
+
+// --- seatbelt backend ---
+{
+  const cmd = buildCommand({ ...base, backend: 'seatbelt', sbFile: '/tmp/x.sb' });
+  assert.strictEqual(cmd.bin, '/usr/bin/sandbox-exec');
+  assert.deepStrictEqual(cmd.args.slice(0, 3), ['-f', '/tmp/x.sb', '/opt/homebrew/bin/claude']);
+  assert.ok(cmd.args.includes('refactor the parser'), 'prompt passed as a single arg');
+  assert.ok(cmd.args.includes('--output-format') && cmd.args.includes('json'));
+  assert.ok(cmd.args.includes('bypassPermissions'));
+  assert.ok(cmd.args.includes('--model') && cmd.args.includes('opus'));
+  ok('seatbelt backend wraps claude in sandbox-exec');
+}
+
+// --- none backend ---
+{
+  const cmd = buildCommand({ ...base, backend: 'none' });
+  assert.strictEqual(cmd.bin, '/opt/homebrew/bin/claude');
+  assert.strictEqual(cmd.args[0], '-p');
+  ok('none backend runs claude directly');
+}
+
+// --- docker backend ---
+{
+  const cmd = buildCommand({
+    ...base,
+    backend: 'docker',
+    dockerImage: 'lea-claude:latest',
+    containerName: 'lea-t1',
+    dockerToken: true,
+  });
+  assert.strictEqual(cmd.bin, 'docker');
+  assert.ok(cmd.args.includes('run') && cmd.args.includes('--rm'));
+  assert.ok(cmd.args.includes('-v') && cmd.args.includes(`/Users/u/proj:${DOCKER_WORKDIR}`), 'mounts project at workdir');
+  assert.ok(cmd.args.includes('--name') && cmd.args.includes('lea-t1'));
+  assert.ok(cmd.args.includes('-e') && cmd.args.includes('CLAUDE_CODE_OAUTH_TOKEN'), 'passes token by name only');
+  assert.ok(cmd.args.includes('lea-claude:latest') && cmd.args.includes('claude'));
+  // claude should be told the container path, not the host path
+  const addIdx = cmd.args.lastIndexOf('--add-dir');
+  assert.strictEqual(cmd.args[addIdx + 1], DOCKER_WORKDIR, '--add-dir uses container path');
+  ok('docker backend mounts only the project dir and uses container paths');
+}
+
+// --- seatbelt profile ---
+{
+  const prof = buildSeatbeltProfile({
+    home: '/Users/u',
+    cwd: '/Users/u/proj',
+    dataDir: '/Users/u/Library/Application Support/Lea',
+    extraDirs: ['/Users/u/scratch'],
+  });
+  assert.ok(/^\(version 1\)/.test(prof), 'starts with version');
+  assert.ok(prof.includes('(allow default)'));
+  assert.ok(prof.includes('(deny file-write* (subpath "/Users/u"))'), 'denies home writes');
+  assert.ok(prof.includes('(subpath "/Users/u/proj")'), 're-allows project dir');
+  assert.ok(prof.includes('(subpath "/Users/u/scratch")'), 're-allows extra dir');
+  assert.ok(prof.lastIndexOf('.ssh') > prof.indexOf('(allow file-write*'), '.ssh denied last (wins)');
+  ok('seatbelt profile confines writes and protects secrets in order');
+}
+
+// --- ccusage parsing (active block) ---
+{
+  const snap = parseCcusageBlocks(
+    JSON.stringify({
+      blocks: [
+        {
+          isActive: true,
+          startTime: '2026-06-05T10:00:00.000Z',
+          endTime: '2026-06-05T15:00:00.000Z',
+          totalTokens: 143673,
+          costUSD: 0.7655,
+          models: ['claude-opus-4-8'],
+        },
+      ],
+    })
+  );
+  assert.strictEqual(snap.active, true);
+  assert.strictEqual(snap.totalTokens, 143673);
+  assert.strictEqual(snap.resetAt, Date.parse('2026-06-05T15:00:00.000Z'));
+  ok('parseCcusageBlocks extracts reset time + tokens');
+}
+
+// --- ccusage parsing (idle) ---
+{
+  const snap = parseCcusageBlocks(JSON.stringify({ blocks: [] }));
+  assert.strictEqual(snap.active, false);
+  assert.strictEqual(snap.resetAt, null);
+  ok('parseCcusageBlocks handles idle (no active block)');
+}
+
+// --- classify: success ---
+{
+  const r = classifyClaudeResult({
+    code: 0,
+    stdout: JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'Done.',
+      total_cost_usd: 0.0123,
+      session_id: 'sess_abc',
+    }),
+    stderr: '',
+  });
+  assert.strictEqual(r.kind, 'ok');
+  assert.strictEqual(r.costUSD, 0.0123);
+  ok('classify recognizes a successful JSON result');
+}
+
+// --- classify: usage limit ---
+{
+  const r = classifyClaudeResult({ code: 1, stdout: '', stderr: 'Claude AI usage limit reached. Resets at 3 PM.' });
+  assert.strictEqual(r.kind, 'limited');
+  ok('classify detects a usage-limit hit');
+}
+
+// --- classify: rate limit in JSON error ---
+{
+  const r = classifyClaudeResult({
+    code: 0,
+    stdout: JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'rate limit exceeded' }),
+    stderr: '',
+  });
+  assert.strictEqual(r.kind, 'limited');
+  ok('classify maps a rate-limit JSON error to limited');
+}
+
+// --- classify: generic error ---
+{
+  const r = classifyClaudeResult({ code: 2, stdout: '', stderr: 'boom: broke' });
+  assert.strictEqual(r.kind, 'error');
+  assert.ok(/boom/.test(r.message));
+  ok('classify surfaces a generic error');
+}
+
+console.log(`\nselftest OK — ${n} checks passed`);
