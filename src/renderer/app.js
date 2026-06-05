@@ -15,6 +15,7 @@ let settings = {};
 let doneCollapsed = false;
 let liveActivity = {}; // taskId -> [recent short activity lines]
 let logTimer = null; // refresh timer while a log panel is open
+let chatTaskId = null; // task whose chat panel is currently open
 
 const fmtDur = (ms) => {
   if (ms == null) return '—:—';
@@ -167,6 +168,7 @@ function taskRow(t) {
     else b.onclick = fn;
     return b;
   };
+  actions.appendChild(mk('💬', 'Chat / reply', () => openChat(t.id)));
   if (t.status === 'failed') actions.appendChild(mk('↻', 'Requeue', () => window.api.tasksRequeue(t.id)));
   if (t.status === 'queued') {
     actions.appendChild(mk('▲', 'Move up', () => window.api.tasksReorder(t.id, 'up')));
@@ -244,10 +246,91 @@ function closeOverlay() {
   const o = $('#overlay');
   o.classList.add('hidden');
   o.innerHTML = '';
+  chatTaskId = null;
   if (logTimer) {
     clearInterval(logTimer);
     logTimer = null;
   }
+}
+
+// Chat / reply panel for a task: shows the conversation, lets you send a
+// follow-up ("approve", "also do X") that continues the same claude session.
+function openChat(taskId) {
+  chatTaskId = taskId;
+  const t = tasks.find((x) => x.id === taskId) || {};
+  const wrap = el('div', 'form');
+  const head = el('div', 'row between');
+  head.appendChild(el('h3', null, '💬 ' + (t.title || 'Task')));
+  const close = el('button', 'btn', 'Close');
+  close.onclick = closeOverlay;
+  head.appendChild(close);
+  wrap.appendChild(head);
+
+  const thread = el('div', 'chat-thread');
+  thread.id = 'chat-thread';
+  wrap.appendChild(thread);
+
+  const row = el('div', 'chat-input');
+  const ta = el('textarea', 'in');
+  ta.id = 'chat-ta';
+  ta.rows = 2;
+  const send = el('button', 'btn primary', 'Send');
+  send.id = 'chat-send';
+  const doSend = async () => {
+    const v = ta.value.trim();
+    if (!v) return;
+    ta.value = '';
+    const r = await window.api.tasksReply(taskId, v);
+    if (r && !r.ok && r.error) toast(r.error);
+  };
+  send.onclick = doSend;
+  ta.onkeydown = (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      doSend();
+    }
+  };
+  row.appendChild(ta);
+  row.appendChild(send);
+  wrap.appendChild(row);
+
+  openOverlay(wrap);
+  renderChat();
+  setTimeout(() => ta.focus(), 30);
+}
+
+function renderChat() {
+  if (!chatTaskId) return;
+  const t = tasks.find((x) => x.id === chatTaskId);
+  const thread = document.getElementById('chat-thread');
+  if (!t || !thread) return;
+  const wasNearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 40;
+  thread.innerHTML = '';
+  for (const m of t.thread || []) {
+    const b = el('div', 'bubble ' + (m.role || 'assistant') + (m.error ? ' err' : ''));
+    b.appendChild(renderInline(m.text || ''));
+    thread.appendChild(b);
+  }
+  const running = t.status === 'running';
+  if (running) {
+    const b = el('div', 'bubble assistant working');
+    b.appendChild(el('div', 'muted small', 'Lea is working…'));
+    for (const l of liveActivity[t.id] || ['• …']) b.appendChild(el('div', 'act-line', l.length > 64 ? l.slice(0, 63) + '…' : l));
+    thread.appendChild(b);
+  }
+  const send = document.getElementById('chat-send');
+  const ta = document.getElementById('chat-ta');
+  const canSend = !running && t.sessionId && !t.queuedReply;
+  if (send) send.disabled = !canSend;
+  if (ta) {
+    ta.disabled = running;
+    ta.placeholder = running
+      ? 'Lea is working…'
+      : t.sessionId
+      ? 'Reply — e.g. “approve”, or “also update the README”…'
+      : 'You can reply after the first run finishes.';
+  }
+  if (wasNearBottom) thread.scrollTop = thread.scrollHeight;
 }
 
 function confirmDialog(opts) {
@@ -619,6 +702,7 @@ window.api.onUpdate(({ type, payload }) => {
     liveActivity[payload.id] = arr.slice(-3); // keep last 3 as bullets
     const node = document.getElementById('act-' + payload.id);
     if (node) renderActivityInto(node, liveActivity[payload.id]);
+    if (chatTaskId === payload.id) renderChat();
     return; // targeted update, no full re-render
   }
   if (type === 'usage') usage = payload;
@@ -633,6 +717,7 @@ window.api.onUpdate(({ type, payload }) => {
   }
   renderUsage();
   if (type === 'tasks' || type === 'runner') renderTasks();
+  if (chatTaskId && (type === 'tasks' || type === 'runner')) renderChat();
 });
 
 $('#btn-add').onclick = addForm;

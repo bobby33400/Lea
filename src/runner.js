@@ -204,11 +204,15 @@ class Runner extends EventEmitter {
     this._emitState();
 
     const model = this._modelFor(task); // cheap "away" model if idle, else your default
-    const reportCtx = report.start(task, model); // create Lea_Reports/<file>.md + snapshot
+    // A queued chat reply continues the existing claude session via --resume.
+    const isReply = !!(task.queuedReply && task.sessionId);
+    const prompt = isReply ? task.queuedReply : task.prompt;
+    const resumeId = isReply ? task.sessionId : null;
+    const reportCtx = report.start(task, model, prompt); // create Lea_Reports/<file>.md + snapshot
 
     let result;
     try {
-      result = await this._exec(task, logFile, model);
+      result = await this._exec(task, logFile, model, { prompt, resumeId });
     } catch (e) {
       result = { kind: 'error', error: 'spawn', message: String((e && e.message) || e) };
     }
@@ -227,12 +231,22 @@ class Runner extends EventEmitter {
       error: result.kind === 'error' ? result.message || result.error : null,
     });
 
+    const strip = (s) => String(s || '').replace(/===LEA-FOLLOWUPS===[\s\S]*?===END-FOLLOWUPS===/i, '').trim();
     let finished = null;
     if (result.kind === 'ok') {
-      this.store.update(task.id, { status: 'done', lastError: null, followups: result.followups || [], reportFile });
+      const patch = { status: 'done', lastError: null, followups: result.followups || [], reportFile, queuedReply: null };
+      if (result.sessionId) patch.sessionId = result.sessionId; // for future --resume replies
+      this.store.update(task.id, patch);
+      this.store.addThreadMessage(task.id, {
+        role: 'assistant',
+        text: strip(result.result) || '(done)',
+        at: Date.now(),
+        cost: result.costUSD,
+        model,
+      });
       finished = { id: task.id, title: task.title, status: 'done', followups: result.followups || [] };
     } else if (result.kind === 'limited') {
-      this.store.update(task.id, { status: 'queued' });
+      this.store.update(task.id, { status: 'queued' }); // keep queuedReply so the reply retries after reset
       const resetAt = (this.usage.snapshot && this.usage.snapshot.resetAt) || Date.now() + 30 * 60 * 1000;
       this._setWait(resetAt, 'usage limit — waiting for reset');
     } else {
@@ -242,7 +256,13 @@ class Runner extends EventEmitter {
         this.store.update(task.id, { status: 'queued', attempts, lastError: result.message });
         this._setWait(Date.now() + 60 * 1000, 'retrying after error');
       } else {
-        this.store.update(task.id, { status: 'failed', attempts, lastError: result.message, reportFile });
+        this.store.update(task.id, { status: 'failed', attempts, lastError: result.message, reportFile, queuedReply: null });
+        this.store.addThreadMessage(task.id, {
+          role: 'assistant',
+          text: '⚠️ Failed: ' + (result.message || result.error || 'error'),
+          at: Date.now(),
+          error: true,
+        });
         finished = { id: task.id, title: task.title, status: 'failed', followups: [] };
       }
     }
@@ -281,7 +301,7 @@ class Runner extends EventEmitter {
     } catch {}
   }
 
-  _exec(task, logFile, model) {
+  _exec(task, logFile, model, runOpts) {
     return new Promise((resolve) => {
       const backend = config.effectiveBackend();
       const sbFile = path.join(SB_DIR, `${task.id}.sb`);
@@ -303,7 +323,7 @@ class Runner extends EventEmitter {
       const { bin, args } = buildCommand({
         backend,
         claudeBin: config.resolveClaudeBin(),
-        prompt: task.prompt,
+        prompt: (runOpts && runOpts.prompt) || task.prompt,
         cwd: realpath(task.cwd),
         model: model || task.model || config.get('model'),
         fallbackModel: config.get('fallbackModel'),
@@ -314,6 +334,7 @@ class Runner extends EventEmitter {
         dockerImage: config.get('dockerImage'),
         containerName,
         dockerToken: !!(backend === 'docker' && token),
+        resumeSessionId: runOpts && runOpts.resumeId,
       });
 
       const env = config.childEnv(backend === 'docker' && token ? { CLAUDE_CODE_OAUTH_TOKEN: token } : null);

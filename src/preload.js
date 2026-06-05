@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   tasksRequeue: (id) => ipcRenderer.invoke('tasks:requeue', id),
   tasksClearDone: () => ipcRenderer.invoke('tasks:clearDone'),
   tasksRunNow: (id) => ipcRenderer.invoke('tasks:runNow', id),
+  tasksReply: (id, text) => ipcRenderer.invoke('tasks:reply', id, text),
   logsGet: (id) => ipcRenderer.invoke('logs:get', id),
   settingsGet: () => ipcRenderer.invoke('settings:get'),
   settingsSet: (patch) => ipcRenderer.invoke('settings:set', patch),

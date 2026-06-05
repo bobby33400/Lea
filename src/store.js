@@ -9,6 +9,8 @@ function uid() {
   return 't_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e6).toString(36);
 }
 
+const stripFollowups = (s) => String(s || '').replace(/===LEA-FOLLOWUPS===[\s\S]*?===END-FOLLOWUPS===/i, '').trim();
+
 class Store extends EventEmitter {
   constructor() {
     super();
@@ -16,7 +18,8 @@ class Store extends EventEmitter {
     this._backfillFollowups();
   }
 
-  // Derive follow-ups for done tasks created before this feature existed.
+  // Derive follow-ups / chat thread / sessionId for tasks created before those
+  // features existed.
   _backfillFollowups() {
     let changed = false;
     for (const t of this.tasks) {
@@ -27,8 +30,48 @@ class Store extends EventEmitter {
           changed = true;
         }
       }
+      if (!t.thread) {
+        t.thread = [{ role: 'user', text: t.prompt || '', at: t.createdAt || Date.now() }];
+        for (const r of t.runs || []) {
+          if (r.message) t.thread.push({ role: 'assistant', text: stripFollowups(r.message), at: r.endedAt, cost: r.costUSD });
+        }
+        changed = true;
+      }
+      if (t.sessionId == null && t.runs && t.runs.length) {
+        const r = [...t.runs].reverse().find((x) => x.sessionId);
+        if (r) {
+          t.sessionId = r.sessionId;
+          changed = true;
+        }
+      }
     }
     if (changed) this._save();
+  }
+
+  addThreadMessage(id, msg) {
+    const t = this.get(id);
+    if (!t) return;
+    t.thread = t.thread || [];
+    t.thread.push(msg);
+    if (t.thread.length > 100) t.thread = t.thread.slice(-100);
+    this._save();
+  }
+
+  // Queue a chat reply that continues the task's claude session on its next run.
+  reply(id, text) {
+    const t = this.get(id);
+    if (!t) return { ok: false, error: 'Task not found.' };
+    if (t.status === 'running') return { ok: false, error: 'Task is still running — wait for it to finish.' };
+    const clean = String(text || '').trim();
+    if (!clean) return { ok: false, error: 'Empty message.' };
+    t.thread = t.thread || [];
+    t.thread.push({ role: 'user', text: clean, at: Date.now() });
+    t.queuedReply = clean;
+    t.status = 'queued';
+    t.lastError = null;
+    t.updatedAt = Date.now();
+    this._save();
+    return { ok: true, task: { ...t } };
   }
 
   _load() {
@@ -70,6 +113,9 @@ class Store extends EventEmitter {
       updatedAt: now,
       runs: [],
       lastError: null,
+      sessionId: null, // latest claude session, for --resume continuations
+      queuedReply: null, // a chat reply waiting to be sent on the next run
+      thread: [{ role: 'user', text: (prompt || '').trim(), at: now }], // chat history
     };
     this.tasks.push(task);
     this._save();

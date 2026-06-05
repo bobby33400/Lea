@@ -225,6 +225,11 @@ function wireIpc(config) {
     return true;
   });
   ipcMain.handle('tasks:runNow', async (_e, id) => runner.runNow(id));
+  ipcMain.handle('tasks:reply', (_e, id, text) => {
+    const r = store.reply(id, text);
+    if (r.ok) runner.tick(); // pick up the reply promptly
+    return r;
+  });
   ipcMain.handle('logs:get', (_e, id) => readLatestLog(id));
   ipcMain.handle('settings:get', () => config.getSettings());
   ipcMain.handle('settings:set', (_e, patch) => {

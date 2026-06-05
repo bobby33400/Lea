@@ -78,11 +78,12 @@ function diffSnapshots(before, after) {
 }
 
 // Create the folder + initial report and snapshot the "before" state.
-function start(task, model) {
+function start(task, model, prompt) {
   const ctx = { ok: false };
   try {
     const cwd = task.cwd;
     if (!cwd || !fs.statSync(cwd).isDirectory()) return ctx;
+    const promptText = prompt || task.prompt;
     const dir = path.join(cwd, REPORT_DIRNAME);
     fs.mkdirSync(dir, { recursive: true });
     const now = new Date();
@@ -102,7 +103,7 @@ function start(task, model) {
         '## Instructions',
         '',
         '```',
-        task.prompt,
+        promptText,
         '```',
         '',
         '## Changes',
@@ -112,6 +113,7 @@ function start(task, model) {
       ].join('\n')
     );
     ctx.file = file;
+    ctx.prompt = promptText;
     ctx.before = snapshot(cwd);
     ctx.startedAt = now;
     ctx.ok = true;
@@ -151,7 +153,7 @@ function finish(ctx, task, result, model) {
       `- **Result:** ${kind}`,
     ];
     if (result.costUSD) lines.push(`- **Cost (API-equivalent):** $${Number(result.costUSD).toFixed(4)}`);
-    lines.push('', '## Instructions', '', '```', task.prompt, '```', '', '## Changes', '');
+    lines.push('', '## Instructions', '', '```', ctx.prompt || task.prompt, '```', '', '## Changes', '');
     lines.push(...fileSection('➕ Added', added));
     lines.push(...fileSection('✏️ Modified', modified));
     lines.push(...fileSection('🗑️ Deleted', deleted));
