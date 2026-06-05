@@ -78,7 +78,7 @@ function diffSnapshots(before, after) {
 }
 
 // Create the folder + initial report and snapshot the "before" state.
-function start(task) {
+function start(task, model) {
   const ctx = { ok: false };
   try {
     const cwd = task.cwd;
@@ -96,7 +96,7 @@ function start(task) {
         `- **Task:** ${task.title}`,
         `- **Started:** ${now.toLocaleString()}`,
         `- **Project:** \`${cwd}\``,
-        `- **Model:** ${task.model || '(default)'}`,
+        `- **Model:** ${model || task.model || '(default)'}`,
         '- **Status:** ⏳ in progress…',
         '',
         '## Instructions',
@@ -127,7 +127,7 @@ function fileSection(title, arr, max = 300) {
 }
 
 // Fill in the report with the diff + result. Returns the report file path.
-function finish(ctx, task, result) {
+function finish(ctx, task, result, model) {
   if (!ctx || !ctx.ok || !ctx.file) return null;
   try {
     const { added, modified, deleted } = diffSnapshots(ctx.before, snapshot(task.cwd));
@@ -147,7 +147,7 @@ function finish(ctx, task, result) {
       `- **Started:** ${ctx.startedAt.toLocaleString()}`,
       `- **Finished:** ${ended.toLocaleString()}  (${dur})`,
       `- **Project:** \`${task.cwd}\``,
-      `- **Model:** ${task.model || '(default)'}`,
+      `- **Model:** ${model || task.model || '(default)'}`,
       `- **Result:** ${kind}`,
     ];
     if (result.costUSD) lines.push(`- **Cost (API-equivalent):** $${Number(result.costUSD).toFixed(4)}`);

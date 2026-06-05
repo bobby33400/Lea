@@ -1,6 +1,6 @@
 'use strict';
 /* main.js — Electron entry: tray + window, IPC, keep-awake, live title. */
-const { app, ipcMain, dialog, shell, nativeImage, powerSaveBlocker, Notification } = require('electron');
+const { app, ipcMain, dialog, shell, nativeImage, powerSaveBlocker, powerMonitor, Notification } = require('electron');
 const path = require('path');
 
 app.setName('Lea'); // affects userData path + about panel; call before 'ready'
@@ -32,7 +32,17 @@ function init() {
 
   store = new Store();
   usage = new UsageMonitor();
-  runner = new Runner({ store, usage });
+  runner = new Runner({
+    store,
+    usage,
+    getIdleSeconds: () => {
+      try {
+        return powerMonitor.getSystemIdleTime();
+      } catch {
+        return 0;
+      }
+    },
+  });
 
   mb = menubar({
     index: 'file://' + path.join(__dirname, 'renderer', 'index.html'),

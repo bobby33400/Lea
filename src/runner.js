@@ -42,10 +42,11 @@ const FOLLOWUP_INSTRUCTION = [
 ].join('\n');
 
 class Runner extends EventEmitter {
-  constructor({ store, usage }) {
+  constructor({ store, usage, getIdleSeconds }) {
     super();
     this.store = store;
     this.usage = usage;
+    this.getIdleSeconds = getIdleSeconds || (() => 0); // seconds since last user input
     this.busy = false;
     this.currentTaskId = null;
     this.currentChild = null;
@@ -76,8 +77,29 @@ class Runner extends EventEmitter {
       waitReason: this.waitReason,
       autoRun: config.get('autoRun'),
       phase: this.phase,
+      away: this._isAway(),
     };
   }
+
+  // "Away" = efficient mode on AND you haven't touched the machine for a while.
+  _isAway() {
+    if (!config.get('efficientWhenAway')) return false;
+    const mins = config.get('awayIdleMinutes');
+    if (mins == null || mins <= 0) return false;
+    try {
+      return this.getIdleSeconds() >= mins * 60;
+    } catch {
+      return false;
+    }
+  }
+
+  // Explicit per-task model wins; otherwise cheap "away" model if idle, else default.
+  _modelFor(task) {
+    if (task.model) return task.model;
+    if (this._isAway()) return config.get('awayModel') || 'sonnet';
+    return config.get('model');
+  }
+
   _emitState() {
     this.emit('state', this.state());
   }
@@ -179,16 +201,17 @@ class Runner extends EventEmitter {
     const logFile = path.join(LOGS_DIR, `${task.id}-${ts}.log`);
     const startedAt = Date.now();
 
-    const reportCtx = report.start(task); // create Lea_Reports/<file>.md + snapshot the project
+    const model = this._modelFor(task); // cheap "away" model if idle, else your default
+    const reportCtx = report.start(task, model); // create Lea_Reports/<file>.md + snapshot
 
     let result;
     try {
-      result = await this._exec(task, logFile);
+      result = await this._exec(task, logFile, model);
     } catch (e) {
       result = { kind: 'error', error: 'spawn', message: String((e && e.message) || e) };
     }
 
-    const reportFile = report.finish(reportCtx, task, result); // write the changelog
+    const reportFile = report.finish(reportCtx, task, result, model); // write the changelog
 
     this.store.addRun(task.id, {
       startedAt,
@@ -256,7 +279,7 @@ class Runner extends EventEmitter {
     } catch {}
   }
 
-  _exec(task, logFile) {
+  _exec(task, logFile, model) {
     return new Promise((resolve) => {
       const backend = config.effectiveBackend();
       const sbFile = path.join(SB_DIR, `${task.id}.sb`);
@@ -280,7 +303,7 @@ class Runner extends EventEmitter {
         claudeBin: config.resolveClaudeBin(),
         prompt: task.prompt,
         cwd: realpath(task.cwd),
-        model: task.model || config.get('model'),
+        model: model || task.model || config.get('model'),
         fallbackModel: config.get('fallbackModel'),
         permissionMode: config.get('permissionMode') || 'bypassPermissions',
         appendSystemPrompt: FOLLOWUP_INSTRUCTION,

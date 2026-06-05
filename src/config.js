@@ -20,8 +20,11 @@ const ASSETS_DIR = path.join(DATA_DIR, 'assets');
 const DEFAULT_SETTINGS = {
   autoRun: true,
   pollIntervalSec: 30,
-  model: 'opus',
-  fallbackModel: 'sonnet',
+  model: 'opus', // model used when you're at the keyboard
+  fallbackModel: 'sonnet', // auto-fallback when the chosen model is unavailable
+  efficientWhenAway: true, // use a cheaper model for runs while you're idle/asleep
+  awayModel: 'sonnet', // the "away" model (sonnet = efficient; haiku = cheapest)
+  awayIdleMinutes: 10, // consider you "away" after this many minutes with no input
   permissionMode: 'bypassPermissions',
   sandboxBackend: 'auto', // 'auto' | 'seatbelt' | 'docker' | 'none'
   dockerImage: 'lea-claude:latest',
