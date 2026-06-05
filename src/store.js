@@ -75,6 +75,12 @@ class Store extends EventEmitter {
     }
   }
 
+  clearDone() {
+    const before = this.tasks.length;
+    this.tasks = this.tasks.filter((t) => t.status !== 'done');
+    if (this.tasks.length !== before) this._save();
+  }
+
   reorder(id, dir) {
     const i = this.tasks.findIndex((t) => t.id === id);
     if (i < 0) return;

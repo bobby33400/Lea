@@ -36,9 +36,6 @@ function toast(msg) {
 }
 
 function renderUsage() {
-  const model = usage.models && usage.models[0] ? usage.models[0].replace(/^claude-/, '') : settings.model || '—';
-  $('#u-model').textContent = model;
-
   let status = 'idle';
   if (runnerState.busy) status = 'running task';
   else if (!runnerState.autoRun) status = 'auto-run off';
@@ -65,57 +62,103 @@ function renderUsage() {
     frac = (Date.now() - usage.startAt) / (usage.resetAt - usage.startAt);
   }
   $('#u-bar').style.width = Math.max(0, Math.min(1, frac)) * 100 + '%';
-  $('#u-tokens').textContent = fmtTokens(usage.totalTokens) + ' tokens';
-  $('#u-cost').textContent = '$' + (usage.costUSD || 0).toFixed(2);
+  $('#u-tokens').textContent = fmtTokens(usage.totalTokens) + ' tokens this session';
+  $('#u-cost').textContent = '$' + (usage.costUSD || 0).toFixed(2) + ' value';
+  renderModelBreakdown();
 }
 
-function renderTasks() {
-  const list = $('#tasks');
-  list.innerHTML = '';
-  if (tasks.length === 0) {
-    list.appendChild(
-      el('div', 'empty', 'No tasks yet.\nClick ＋ Task to queue work for Claude to run automatically when your tokens reset.')
-    );
-    return;
+// Per-model token usage for the current session (which models, how much each).
+function renderModelBreakdown() {
+  const cont = $('#u-models');
+  cont.innerHTML = '';
+  const mb = (usage.modelBreakdown || []).filter((m) => m.total > 0);
+  if (!mb.length) return;
+  const max = mb[0].total || 1;
+  const clean = (m) => m.replace(/^claude-/, '').replace(/-\d{6,}$/, '');
+  for (const m of mb) {
+    const row = el('div', 'mrow');
+    row.appendChild(el('span', 'mname', clean(m.model)));
+    const bar = el('div', 'mbar');
+    const fill = el('div', 'mbarfill');
+    fill.style.width = Math.max(4, (m.total / max) * 100) + '%';
+    bar.appendChild(fill);
+    row.appendChild(bar);
+    row.appendChild(el('span', 'mval', fmtTokens(m.total)));
+    cont.appendChild(row);
   }
-  tasks.forEach((t) => {
-    const row = el('div', 'task ' + t.status);
-    const main = el('div', 'task-main');
-    main.appendChild(el('div', 'task-title', t.title));
-    const meta = el('div', 'task-meta');
-    const badge = el('span', 'badge ' + t.status, t.status);
-    meta.appendChild(badge);
-    meta.appendChild(el('span', 'muted small', '📁 ' + (basename(t.cwd) || 'no folder')));
-    if (t.model) meta.appendChild(el('span', 'muted small', '· ' + t.model));
-    if (t.attempts) meta.appendChild(el('span', 'muted small', '· try ' + t.attempts));
-    const lastCost = t.runs && t.runs.length ? t.runs[t.runs.length - 1].costUSD : null;
-    if (lastCost) meta.appendChild(el('span', 'muted small', '· $' + lastCost.toFixed(3)));
-    main.appendChild(meta);
-    if (t.lastError) main.appendChild(el('div', 'err small', String(t.lastError).slice(0, 160)));
-    row.appendChild(main);
+}
 
-    const actions = el('div', 'task-actions');
-    const mk = (glyph, title, fn, disabled) => {
-      const b = el('button', 'icon', glyph);
-      b.title = title;
-      if (disabled) b.disabled = true;
-      else b.onclick = fn;
-      return b;
-    };
-    if (t.status === 'failed') actions.appendChild(mk('↻', 'Requeue', () => window.api.tasksRequeue(t.id)));
+function taskRow(t) {
+  const row = el('div', 'task ' + t.status);
+  const main = el('div', 'task-main');
+  main.appendChild(el('div', 'task-title', t.title));
+  const meta = el('div', 'task-meta');
+  meta.appendChild(el('span', 'badge ' + t.status, t.status));
+  meta.appendChild(el('span', 'muted small', '📁 ' + (basename(t.cwd) || 'no folder')));
+  if (t.model) meta.appendChild(el('span', 'muted small', '· ' + t.model));
+  if (t.attempts) meta.appendChild(el('span', 'muted small', '· try ' + t.attempts));
+  const lastRun = t.runs && t.runs.length ? t.runs[t.runs.length - 1] : null;
+  if (lastRun && lastRun.costUSD) meta.appendChild(el('span', 'muted small', '· $' + lastRun.costUSD.toFixed(3)));
+  if (t.status === 'done' && lastRun) {
+    const s = Math.round((lastRun.endedAt - lastRun.startedAt) / 1000);
+    meta.appendChild(el('span', 'muted small', '· ' + (s >= 60 ? Math.floor(s / 60) + 'm' + (s % 60) + 's' : s + 's')));
+  }
+  main.appendChild(meta);
+  if (t.lastError) main.appendChild(el('div', 'err small', String(t.lastError).slice(0, 160)));
+  row.appendChild(main);
+
+  const actions = el('div', 'task-actions');
+  const mk = (glyph, title, fn, disabled) => {
+    const b = el('button', 'icon', glyph);
+    b.title = title;
+    if (disabled) b.disabled = true;
+    else b.onclick = fn;
+    return b;
+  };
+  if (t.status === 'failed') actions.appendChild(mk('↻', 'Requeue', () => window.api.tasksRequeue(t.id)));
+  if (t.status === 'queued') {
     actions.appendChild(mk('▲', 'Move up', () => window.api.tasksReorder(t.id, 'up')));
     actions.appendChild(mk('▼', 'Move down', () => window.api.tasksReorder(t.id, 'down')));
+  }
+  if (t.status !== 'done') {
     actions.appendChild(
       mk('▶', 'Run now', async () => {
         const r = await window.api.tasksRunNow(t.id);
         if (r && !r.ok && r.error) toast(r.error);
       }, runnerState.busy)
     );
-    actions.appendChild(mk('📄', 'View log', () => showLog(t)));
-    actions.appendChild(mk('🗑', 'Delete', () => window.api.tasksRemove(t.id)));
-    row.appendChild(actions);
-    list.appendChild(row);
-  });
+  }
+  actions.appendChild(mk('📄', 'View log', () => showLog(t)));
+  actions.appendChild(mk('🗑', 'Delete', () => window.api.tasksRemove(t.id)));
+  row.appendChild(actions);
+  return row;
+}
+
+function renderTasks() {
+  const list = $('#tasks');
+  list.innerHTML = '';
+  const active = tasks.filter((t) => t.status !== 'done');
+  const done = tasks.filter((t) => t.status === 'done');
+
+  if (active.length === 0 && done.length === 0) {
+    list.appendChild(
+      el('div', 'empty', 'No tasks yet.\nClick ＋ Task to queue work for Claude to run automatically when your tokens reset.')
+    );
+    return;
+  }
+
+  for (const t of active) list.appendChild(taskRow(t));
+
+  if (done.length) {
+    const hdr = el('div', 'section-hdr');
+    hdr.appendChild(el('span', null, '✓ Done (' + done.length + ')'));
+    const clear = el('button', 'linkbtn', 'Clear');
+    clear.title = 'Remove all done tasks';
+    clear.onclick = () => window.api.tasksClearDone();
+    hdr.appendChild(clear);
+    list.appendChild(hdr);
+    for (const t of done) list.appendChild(taskRow(t));
+  }
 }
 
 /* ---- overlays ---- */

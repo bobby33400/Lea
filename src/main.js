@@ -180,6 +180,10 @@ function wireIpc(config) {
     return true;
   });
   ipcMain.handle('tasks:requeue', (_e, id) => store.update(id, { status: 'queued', attempts: 0, lastError: null }));
+  ipcMain.handle('tasks:clearDone', () => {
+    store.clearDone();
+    return true;
+  });
   ipcMain.handle('tasks:runNow', async (_e, id) => runner.runNow(id));
   ipcMain.handle('logs:get', (_e, id) => readLatestLog(id));
   ipcMain.handle('settings:get', () => config.getSettings());

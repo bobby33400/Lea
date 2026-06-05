@@ -170,4 +170,20 @@ const base = {
   ok('precise window: reset is first-message + 5h, not the floored hour');
 }
 
+// --- per-model usage tally ---
+{
+  const { tallyModelUsage } = require('../src/window');
+  const records = [
+    { t: 100, model: 'claude-opus-4-8', usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 100 }, key: 'a' },
+    { t: 100, model: 'claude-opus-4-8', usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 100 }, key: 'a' }, // duplicate
+    { t: 150, model: 'claude-haiku-4-5', usage: { input_tokens: 2, output_tokens: 3 }, key: 'b' },
+    { t: 5, model: 'claude-opus-4-8', usage: { input_tokens: 999 }, key: 'c' }, // out of range
+  ];
+  const out = tallyModelUsage(records, 50, 200);
+  assert.strictEqual(out['claude-opus-4-8'].total, 115, 'opus = 10+5+100; dup ignored; out-of-range excluded');
+  assert.strictEqual(out['claude-opus-4-8'].cacheRead, 100);
+  assert.strictEqual(out['claude-haiku-4-5'].total, 5);
+  ok('tallyModelUsage aggregates per model, dedupes by key, filters by range');
+}
+
 console.log(`\nselftest OK — ${n} checks passed`);

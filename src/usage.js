@@ -4,7 +4,7 @@ const { EventEmitter } = require('events');
 const config = require('./config');
 const { run } = require('./spawnutil');
 const { parseCcusageBlocks } = require('./classify');
-const { preciseWindow } = require('./window');
+const { preciseWindow, modelUsageInRange } = require('./window');
 
 class UsageMonitor extends EventEmitter {
   constructor() {
@@ -52,6 +52,7 @@ class UsageMonitor extends EventEmitter {
     try {
       const snap = parseCcusageBlocks(stdout);
       this._refineReset(snap); // correct ccusage's hour-floored reset
+      this._addModelBreakdown(snap); // per-model usage for this session
       snap.updatedAt = Date.now();
       snap.error = null;
       this.snapshot = snap;
@@ -84,6 +85,22 @@ class UsageMonitor extends EventEmitter {
       this._wPrecise = w.precise;
     } catch {
       /* keep ccusage's values on any error */
+    }
+  }
+
+  // Attach a per-model token breakdown for the current session window.
+  _addModelBreakdown(snap) {
+    if (!snap.active || !snap.startAt) {
+      snap.modelBreakdown = [];
+      return;
+    }
+    try {
+      const usage = modelUsageInRange(snap.startAt, snap.resetAt || Date.now());
+      snap.modelBreakdown = Object.entries(usage)
+        .map(([model, u]) => ({ model, ...u }))
+        .sort((a, b) => b.total - a.total);
+    } catch {
+      snap.modelBreakdown = [];
     }
   }
 
