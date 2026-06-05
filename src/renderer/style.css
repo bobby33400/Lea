@@ -220,6 +220,49 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* "Things for you to do" box on completed tasks */
+.followups {
+  margin-top: 8px;
+  background: rgba(106, 169, 255, 0.08);
+  border: 1px solid rgba(106, 169, 255, 0.32);
+  border-radius: 8px;
+  padding: 8px 10px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.fu-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent2);
+  margin-bottom: 5px;
+}
+.fu-item {
+  font-size: 12px;
+  color: var(--fg);
+  margin: 4px 0;
+  line-height: 1.55;
+  white-space: normal;
+}
+.fu-item code {
+  background: #0f1013;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font: 11px "SF Mono", ui-monospace, Menlo, monospace;
+  color: var(--yellow);
+}
+.fu-code {
+  background: #0f1013;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  margin: 5px 0 2px;
+  font: 11px/1.5 "SF Mono", ui-monospace, Menlo, monospace;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .badge {
   font-size: 10px;
   text-transform: uppercase;

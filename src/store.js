@@ -3,6 +3,7 @@
 const fs = require('fs');
 const { EventEmitter } = require('events');
 const { TASKS_FILE } = require('./config');
+const { extractFollowups } = require('./classify');
 
 function uid() {
   return 't_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e6).toString(36);
@@ -12,6 +13,22 @@ class Store extends EventEmitter {
   constructor() {
     super();
     this.tasks = this._load();
+    this._backfillFollowups();
+  }
+
+  // Derive follow-ups for done tasks created before this feature existed.
+  _backfillFollowups() {
+    let changed = false;
+    for (const t of this.tasks) {
+      if (t.status === 'done' && !t.followups && t.runs && t.runs.length) {
+        const msg = t.runs[t.runs.length - 1].message;
+        if (msg) {
+          t.followups = extractFollowups(msg);
+          changed = true;
+        }
+      }
+    }
+    if (changed) this._save();
   }
 
   _load() {

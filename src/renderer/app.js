@@ -88,6 +88,35 @@ function renderModelBreakdown() {
   }
 }
 
+// Render text with inline `code` and ```fenced``` blocks.
+function renderInline(text) {
+  const frag = document.createDocumentFragment();
+  const parts = String(text).split('```');
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) {
+      frag.appendChild(el('pre', 'fu-code', parts[i].replace(/^[a-z0-9]*\n/i, '').replace(/\s+$/, '')));
+    } else {
+      const seg = parts[i].split('`');
+      for (let j = 0; j < seg.length; j++) {
+        if (j % 2 === 1) frag.appendChild(el('code', null, seg[j]));
+        else if (seg[j]) frag.appendChild(document.createTextNode(seg[j]));
+      }
+    }
+  }
+  return frag;
+}
+
+function followupsBox(items) {
+  const box = el('div', 'followups');
+  box.appendChild(el('div', 'fu-title', '📋 Things for you to do'));
+  for (const it of items) {
+    const line = el('div', 'fu-item');
+    line.appendChild(renderInline(it));
+    box.appendChild(line);
+  }
+  return box;
+}
+
 function taskRow(t) {
   const row = el('div', 'task ' + t.status);
   const main = el('div', 'task-main');
@@ -105,6 +134,7 @@ function taskRow(t) {
   }
   main.appendChild(meta);
   if (t.lastError) main.appendChild(el('div', 'err small', String(t.lastError).slice(0, 160)));
+  if (t.followups && t.followups.length) main.appendChild(followupsBox(t.followups));
   row.appendChild(main);
 
   const actions = el('div', 'task-actions');

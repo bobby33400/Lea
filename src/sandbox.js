@@ -83,6 +83,7 @@ function buildClaudeArgs(o, addDirs) {
   const args = ['-p', o.prompt, '--output-format', 'json', '--permission-mode', o.permissionMode || 'bypassPermissions'];
   if (o.model) args.push('--model', o.model);
   if (o.fallbackModel) args.push('--fallback-model', o.fallbackModel);
+  if (o.appendSystemPrompt) args.push('--append-system-prompt', o.appendSystemPrompt);
   for (const d of addDirs || []) args.push('--add-dir', d);
   return args;
 }

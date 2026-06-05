@@ -186,4 +186,20 @@ const base = {
   ok('tallyModelUsage aggregates per model, dedupes by key, filters by range');
 }
 
+// --- follow-up extraction ---
+{
+  const { extractFollowups } = require('../src/classify');
+  // structured block
+  const a = extractFollowups('Report.\n===LEA-FOLLOWUPS===\n- Run `supabase db push`\n- Review the diff\n===END-FOLLOWUPS===');
+  assert.deepStrictEqual(a, ['Run `supabase db push`', 'Review the diff'], 'parses structured block');
+  // explicit NONE
+  assert.deepStrictEqual(extractFollowups('done\n===LEA-FOLLOWUPS===\nNONE\n===END-FOLLOWUPS==='), [], 'NONE => empty');
+  // heuristic markdown section
+  const c = extractFollowups('# Summary\nok\n## Action required from you\n- Push to git\n- Apply migration\n## Notes\nx');
+  assert.deepStrictEqual(c, ['Push to git', 'Apply migration'], 'heuristic action-required section');
+  // nothing actionable
+  assert.deepStrictEqual(extractFollowups('All good, nothing for you to do.'), [], 'no section => empty');
+  ok('extractFollowups: structured block, NONE, heuristic section, and empty');
+}
+
 console.log(`\nselftest OK — ${n} checks passed`);

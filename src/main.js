@@ -1,6 +1,6 @@
 'use strict';
 /* main.js — Electron entry: tray + window, IPC, keep-awake, live title. */
-const { app, ipcMain, dialog, shell, nativeImage, powerSaveBlocker } = require('electron');
+const { app, ipcMain, dialog, shell, nativeImage, powerSaveBlocker, Notification } = require('electron');
 const path = require('path');
 
 app.setName('Lea'); // affects userData path + about panel; call before 'ready'
@@ -109,6 +109,31 @@ function forwardEvents(config) {
     send('runner', st);
     updatePower(config);
   });
+  runner.on('finished', (info) => notifyFinished(info));
+}
+
+// Tell the user a task wrapped up — and whether it needs them.
+function notifyFinished(info) {
+  try {
+    if (!Notification.isSupported()) return;
+    let title;
+    let body;
+    if (info.status === 'done') {
+      const n = (info.followups || []).length;
+      title = '✅ ' + info.title;
+      body = n ? `Done — ${n} thing${n > 1 ? 's' : ''} for you to do. Click to view.` : 'Done — nothing needed from you.';
+    } else if (info.status === 'failed') {
+      title = '⚠️ ' + info.title;
+      body = 'Failed — click to see the log.';
+    } else {
+      return;
+    }
+    const notif = new Notification({ title, body });
+    notif.on('click', () => {
+      if (mb) mb.showWindow();
+    });
+    notif.show();
+  } catch {}
 }
 
 function fmtDur(ms) {
