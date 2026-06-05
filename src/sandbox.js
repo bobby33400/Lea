@@ -83,6 +83,7 @@ function buildClaudeArgs(o, addDirs) {
   // stream-json (+ required --verbose) so Lea can show live progress; the final
   // event is the same result object the json format emits.
   const args = ['-p', o.prompt, '--output-format', 'stream-json', '--verbose', '--permission-mode', o.permissionMode || 'bypassPermissions'];
+  if (o.resumeSessionId) args.push('--resume', o.resumeSessionId); // continue a chat thread
   if (o.model) args.push('--model', o.model);
   if (o.fallbackModel) args.push('--fallback-model', o.fallbackModel);
   if (o.appendSystemPrompt) args.push('--append-system-prompt', o.appendSystemPrompt);
