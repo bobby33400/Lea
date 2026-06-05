@@ -9,7 +9,7 @@ usage and runs a **to-do queue automatically** — the moment your limit resets,
 it picks up the next task and runs Claude headlessly. Queue work before bed,
 wake up to it done.
 
-[![build](https://github.com/OWNER/lea/actions/workflows/build.yml/badge.svg)](https://github.com/OWNER/lea/actions/workflows/build.yml)
+[![build](https://github.com/bobby33400/Lea/actions/workflows/build.yml/badge.svg)](https://github.com/bobby33400/Lea/actions/workflows/build.yml)
 ![platforms](https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-informational)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -54,8 +54,8 @@ wake up to it done.
 ## Install & run (from source)
 
 ```bash
-git clone https://github.com/OWNER/lea.git
-cd lea
+git clone https://github.com/bobby33400/Lea.git
+cd Lea
 npm install
 npm start
 ```

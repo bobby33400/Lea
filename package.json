@@ -6,13 +6,13 @@
   "main": "src/main.js",
   "author": "Lea contributors",
   "license": "MIT",
-  "homepage": "https://github.com/OWNER/lea#readme",
+  "homepage": "https://github.com/bobby33400/Lea#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/OWNER/lea.git"
+    "url": "https://github.com/bobby33400/Lea.git"
   },
   "bugs": {
-    "url": "https://github.com/OWNER/lea/issues"
+    "url": "https://github.com/bobby33400/Lea/issues"
   },
   "keywords": [
     "claude",
