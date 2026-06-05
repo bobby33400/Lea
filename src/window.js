@@ -92,4 +92,81 @@ function preciseWindow(flooredStartMs, flooredEndMs, projectsDir = PROJECTS_DIR)
   return { startAt: realStart, resetAt: realStart + FIVE_HOURS_MS, precise: true };
 }
 
-module.exports = { earliestTimestampInRange, scanFirstMessage, preciseWindow, FIVE_HOURS_MS, PROJECTS_DIR };
+/** Pure: aggregate per-model token usage from records, de-duping by key and
+ * filtering to [loMs, hiMs]. records: [{ t, model, usage, key }]. */
+function tallyModelUsage(records, loMs, hiMs) {
+  const out = {};
+  const seen = new Set();
+  for (const r of records) {
+    if (r.t < loMs || r.t > hiMs) continue;
+    if (!r.model || !r.usage) continue;
+    if (r.key) {
+      if (seen.has(r.key)) continue; // same logical message can appear in >1 file
+      seen.add(r.key);
+    }
+    const u = r.usage;
+    const inp = u.input_tokens || 0;
+    const op = u.output_tokens || 0;
+    const cw = u.cache_creation_input_tokens || 0;
+    const cr = u.cache_read_input_tokens || 0;
+    const e = out[r.model] || (out[r.model] = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 });
+    e.input += inp;
+    e.output += op;
+    e.cacheWrite += cw;
+    e.cacheRead += cr;
+    e.total += inp + op + cw + cr;
+  }
+  return out;
+}
+
+/** Impure: scan recent transcripts and tally per-model usage within [loMs, hiMs]. */
+function modelUsageInRange(loMs, hiMs, projectsDir = PROJECTS_DIR) {
+  let files;
+  try {
+    files = collectJsonl(projectsDir);
+  } catch {
+    return {};
+  }
+  const skipBefore = loMs - 2 * 60 * 60 * 1000;
+  const records = [];
+  for (const f of files) {
+    let st;
+    try {
+      st = fs.statSync(f);
+    } catch {
+      continue;
+    }
+    if (st.mtimeMs < skipBefore) continue;
+    let data;
+    try {
+      data = fs.readFileSync(f, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const line of data.split('\n')) {
+      if (line.indexOf('"usage"') === -1) continue; // cheap pre-filter
+      let o;
+      try {
+        o = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const t = Date.parse(o.timestamp);
+      if (isNaN(t)) continue;
+      const msg = o.message;
+      if (!msg || !msg.usage || !msg.model) continue;
+      records.push({ t, model: msg.model, usage: msg.usage, key: (o.requestId || '') + '|' + (msg.id || o.uuid || '') });
+    }
+  }
+  return tallyModelUsage(records, loMs, hiMs);
+}
+
+module.exports = {
+  earliestTimestampInRange,
+  scanFirstMessage,
+  preciseWindow,
+  tallyModelUsage,
+  modelUsageInRange,
+  FIVE_HOURS_MS,
+  PROJECTS_DIR,
+};

@@ -100,6 +100,71 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* per-model breakdown */
+.models {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.mname {
+  width: 78px;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mbar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--card2);
+  overflow: hidden;
+}
+.mbarfill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+}
+.mval {
+  width: 52px;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* section header (Done) */
+.section-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 10px 2px 6px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.linkbtn {
+  background: transparent;
+  border: 0;
+  color: var(--accent2);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.linkbtn:hover {
+  text-decoration: underline;
+}
+
 /* ---- task list ---- */
 .list {
   flex: 1;
