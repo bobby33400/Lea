@@ -5,8 +5,8 @@ Thanks for your interest! Lea is a small, hackable Electron app.
 ## Dev setup
 
 ```bash
-git clone https://github.com/OWNER/lea.git
-cd lea
+git clone https://github.com/bobby33400/Lea.git
+cd Lea
 npm install
 npm start          # launch the tray app
 npm run selftest   # fast, offline logic tests (no tokens spent)
