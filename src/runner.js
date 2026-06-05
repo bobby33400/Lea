@@ -337,7 +337,8 @@ class Runner extends EventEmitter {
       let lineBuf = '';
       let child;
       try {
-        child = spawn(bin, args, { cwd: task.cwd, env, detached: !IS_WIN });
+        // stdin = ignore so claude doesn't wait ~3s for input it'll never get.
+        child = spawn(bin, args, { cwd: task.cwd, env, detached: !IS_WIN, stdio: ['ignore', 'pipe', 'pipe'] });
       } catch (e) {
         log.write(`\n[spawn error] ${e.message}\n`);
         log.end();
