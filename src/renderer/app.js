@@ -48,6 +48,7 @@ function renderUsage() {
   else if (runnerState.waitUntil && runnerState.waitUntil > Date.now()) status = runnerState.waitReason || 'waiting';
   else if (tasks.some((t) => t.status === 'queued')) status = 'ready';
   if (usage.error) status = 'usage err';
+  if (runnerState.away) status += ' 💤'; // efficient mode (you're idle)
   $('#u-status').textContent = status;
 
   let target = null;
@@ -499,8 +500,8 @@ function settingsForm() {
   // default model
   const modelRow = el('div', 'setting');
   const ml = el('div');
-  ml.appendChild(el('label', null, 'Default model'));
-  ml.appendChild(el('div', 'desc', 'Used when a task has no model set'));
+  ml.appendChild(el('label', null, 'Model when you’re here'));
+  ml.appendChild(el('div', 'desc', 'Used when you’re active (and a task has no model set)'));
   const sel = el('select', 'in');
   sel.style.width = '120px';
   ['opus', 'sonnet', 'haiku'].forEach((m) => {
@@ -515,6 +516,30 @@ function settingsForm() {
   modelRow.appendChild(ml);
   modelRow.appendChild(sel);
   wrap.appendChild(modelRow);
+
+  // efficient "away" mode
+  wrap.appendChild(
+    toggle('efficientWhenAway', 'Efficient mode when away', 'Run on a cheaper model while you’re idle/asleep')
+  );
+  const awayRow = el('div', 'setting');
+  const al = el('div');
+  al.appendChild(el('label', null, 'Away model'));
+  al.appendChild(el('div', 'desc', 'sonnet ≈ 5× cheaper than opus · haiku ≈ 15× (but weaker on code)'));
+  const asel = el('select', 'in');
+  asel.style.width = '120px';
+  ['sonnet', 'haiku', 'opus'].forEach((m) => {
+    const o = el('option', null, m);
+    o.value = m;
+    if ((settings.awayModel || 'sonnet') === m) o.selected = true;
+    asel.appendChild(o);
+  });
+  asel.onchange = async () => {
+    settings = await window.api.settingsSet({ awayModel: asel.value });
+  };
+  awayRow.appendChild(al);
+  awayRow.appendChild(asel);
+  wrap.appendChild(awayRow);
+  wrap.appendChild(num('awayIdleMinutes', 'Away after (min idle)', 'Count you as away after this long with no input', 1, 240));
 
   wrap.appendChild(num('taskTimeoutMin', 'Task timeout (min)', 'Stop a task that runs too long', 1, 600));
   wrap.appendChild(num('maxRetries', 'Max retries', 'Retries for non-limit errors', 0, 10));
