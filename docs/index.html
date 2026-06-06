@@ -12,8 +12,15 @@
 <meta property="og:description" content="Tracks your Claude usage and runs a to-do queue automatically the moment your limit resets. Open source, MIT, runs on macOS / Windows / Linux." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://github.com/bobby33400/Lea" />
+<meta property="og:image" content="https://raw.githubusercontent.com/bobby33400/Lea/main/build/icon.png" />
 
-<!-- Favicon: the app's terracotta gauge-ring icon, inline -->
+<!-- Twitter card -->
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Lea — autonomous Claude task runner" />
+<meta name="twitter:description" content="Tracks your Claude usage and runs a to-do queue automatically the moment your limit resets. Open source, MIT, macOS / Windows / Linux." />
+<meta name="twitter:image" content="https://raw.githubusercontent.com/bobby33400/Lea/main/build/icon.png" />
+
+<!-- Favicon: the app's terracotta gauge-ring mark, matching build/icon.png and the on-page logo, inline -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%23d97757'/%3E%3Ccircle cx='32' cy='32' r='15' fill='none' stroke='%23fff' stroke-width='6'/%3E%3C/svg%3E" />
 
 <style>
@@ -51,6 +58,17 @@
   .accent { color: var(--accent); }
   .muted { color: var(--muted); }
   .tnum { font-variant-numeric: tabular-nums; }
+
+  /* themed text selection — terracotta instead of the default blue */
+  ::selection { background: rgba(217,119,87,0.32); color: #fff; }
+
+  /* one clear, consistent keyboard-focus ring across every interactive element */
+  a:focus-visible, button:focus-visible, select:focus-visible,
+  textarea:focus-visible, [role="switch"]:focus-visible {
+    outline: 2px solid var(--accent2);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
 
   /* ---------- background glow ---------- */
   .glow {
@@ -291,7 +309,8 @@
   .settings-pop .sp-reset { width: 100%; margin-top: 8px; }
 
   /* ---------- generic section ---------- */
-  section { padding: 72px 0; border-top: 1px solid var(--line); }
+  /* scroll-margin keeps section headings clear of the 60px sticky nav on anchor jumps */
+  section { padding: 72px 0; border-top: 1px solid var(--line); scroll-margin-top: 80px; }
   .eyebrow { color: var(--accent); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; }
   .sec-title { font-size: clamp(28px, 4vw, 38px); font-weight: 800; margin-top: 12px; }
   .sec-lead { color: var(--muted); font-size: 18px; margin-top: 14px; max-width: 640px; }
@@ -317,7 +336,7 @@
   @media (max-width: 540px){ .feat-grid { grid-template-columns: 1fr; } }
 
   /* install */
-  .install-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 32px; margin-top: 40px; align-items: start; }
+  .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 40px; align-items: start; }
   @media (max-width: 860px){ .install-grid { grid-template-columns: 1fr; } }
   .codeblock { background: #0e0f13; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
   .code-head { display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--line); background: var(--card); }
@@ -339,6 +358,7 @@
   .req li .ck { color: var(--green); flex: 0 0 auto; }
   .note { margin-top: 16px; font-size: 13px; color: var(--muted); background: rgba(106,169,255,0.07); border: 1px solid rgba(106,169,255,0.28); border-radius: 10px; padding: 12px 14px; }
   .note code, .req code, .sec-lead code { background: #0e0f13; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font: 12.5px var(--mono); color: var(--yellow); }
+  .note b:first-child { color: var(--fg); }
 
   /* safety */
   .safe-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 40px; }
@@ -365,6 +385,21 @@
   .cfg-table tr:last-child td { border-bottom: 0; }
   .cfg-table tbody tr:hover { background: rgba(255,255,255,0.015); }
 
+  /* clickable "Default" picker — choose any option, mirrors the in-app Settings */
+  .cfg-select {
+    appearance: none; -webkit-appearance: none;
+    background: var(--card2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa0ad' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 9px center;
+    color: var(--accent); border: 1px solid var(--line); border-radius: 8px;
+    padding: 5px 26px 5px 11px; font: 600 12.5px var(--mono); cursor: pointer;
+    outline: none; transition: border-color .12s, color .12s, background-color .12s;
+  }
+  .cfg-select:hover { border-color: var(--muted); }
+  .cfg-select:focus-visible { border-color: var(--accent); }
+  .cfg-select.changed { color: var(--yellow); border-color: rgba(216,178,90,.5); }
+  .cfg-select option { background: var(--card2); color: var(--fg); font-family: inherit; }
+  .cfg-hint { margin-top: 14px; font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 7px; }
+  .cfg-hint kbd { font: 11px var(--mono); color: var(--accent); background: var(--card2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+
   /* final cta */
   .final { text-align: center; }
   .final .box { background: linear-gradient(160deg, var(--card), var(--bg)); border: 1px solid var(--line); border-radius: 20px; padding: 56px 28px; }
@@ -381,7 +416,73 @@
   /* reveal on scroll */
   .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
   .reveal.in { opacity: 1; transform: none; }
-  @media (prefers-reduced-motion: reduce) { .reveal { opacity:1; transform:none; transition:none; } html{scroll-behavior:auto;} }
+  /* stagger grid reveals so cards cascade instead of snapping in together */
+  .steps .reveal:nth-child(2), .feat-grid .reveal:nth-child(2) { transition-delay: .06s; }
+  .steps .reveal:nth-child(3), .feat-grid .reveal:nth-child(3) { transition-delay: .12s; }
+  .steps .reveal:nth-child(4), .feat-grid .reveal:nth-child(4) { transition-delay: .18s; }
+  .feat-grid .reveal:nth-child(5) { transition-delay: .24s; }
+  .feat-grid .reveal:nth-child(6) { transition-delay: .30s; }
+
+  /* ---------- motion & polish ---------- */
+  /* hero copy fades up with a gentle stagger on load */
+  @keyframes heroIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
+  .hero-copy > * { opacity: 0; animation: heroIn .7s cubic-bezier(.22,.61,.36,1) both; }
+  .hero-copy > *:nth-child(1) { animation-delay: .05s; }
+  .hero-copy > *:nth-child(2) { animation-delay: .13s; }
+  .hero-copy > *:nth-child(3) { animation-delay: .21s; }
+  .hero-copy > *:nth-child(4) { animation-delay: .29s; }
+  .hero-copy > *:nth-child(5) { animation-delay: .37s; }
+
+  /* nav drops in from the top */
+  @keyframes navIn { from { opacity: 0; transform: translateY(-100%); } to { opacity: 1; transform: none; } }
+  header.nav { animation: navIn .5s ease both; }
+
+  /* the hero mockup floats gently for a sense of depth */
+  @keyframes floaty { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+  .app { animation: floaty 6s ease-in-out infinite; }
+  /* hold it still while you're actually using the live demo, so targets don't drift */
+  .mock-stage:hover .app, .app:focus-within { animation-play-state: paused; }
+
+  /* slow-drifting background glow */
+  @keyframes glowDrift { 0%, 100% { transform: translate3d(0,0,0); } 50% { transform: translate3d(-24px, 14px, 0); } }
+  .glow { animation: glowDrift 22s ease-in-out infinite; will-change: transform; }
+
+  /* a light sweeping across the live usage bars */
+  .bar-fill, .mbarfill { position: relative; overflow: hidden; }
+  .bar-fill::after, .mbarfill::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.4), transparent);
+    transform: translateX(-100%); animation: shimmer 2.8s ease-in-out infinite;
+  }
+  @keyframes shimmer { 0% { transform: translateX(-100%); } 55%, 100% { transform: translateX(100%); } }
+
+  /* button lift on hover */
+  .btn { transition: filter .15s, background .15s, border-color .15s, transform .15s, box-shadow .15s; }
+  .btn.primary:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -10px var(--accent); }
+  .btn.ghost:hover { transform: translateY(-2px); }
+  .btn:active { transform: translateY(0); }
+
+  /* step cards lift + their number badge springs */
+  .step { transition: border-color .15s, transform .15s, box-shadow .15s; }
+  .step:hover { border-color: rgba(217,119,87,0.4); transform: translateY(-2px); box-shadow: 0 12px 28px -18px rgba(0,0,0,.7); }
+  .step .n { transition: transform .2s ease; }
+  .step:hover .n { transform: scale(1.08) rotate(-5deg); }
+
+  /* feature icon springs forward on card hover */
+  .feat .ico { transition: transform .2s ease, border-color .15s, background .15s; }
+  .feat:hover .ico { transform: translateY(-2px) scale(1.06); border-color: rgba(217,119,87,0.5); }
+
+  /* nav CTA + star chip nudge up */
+  .nav-cta { transition: filter .15s, transform .15s; }
+  .nav-cta:hover { transform: translateY(-1px); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity:1; transform:none; transition:none; }
+    html { scroll-behavior:auto; }
+    .hero-copy > * { opacity: 1; }
+    .hero-copy > *, header.nav, .app, .glow,
+    .bar-fill::after, .mbarfill::after { animation: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -413,7 +514,7 @@
 <!-- ===================== HERO ===================== -->
 <section class="hero" style="border-top:0">
   <div class="wrap hero-grid">
-    <div>
+    <div class="hero-copy">
       <span class="pill"><span class="dot"></span> Open source · MIT · macOS / Windows / Linux</span>
       <h1>Claude that works <span class="accent">while you sleep.</span></h1>
       <p class="sub">
@@ -635,19 +736,51 @@
 <span class="p">$</span> <span class="k">npm</span> start</code></pre>
         </div>
         <div class="note">
-          <b>Prefer a prebuilt installer?</b> Pushing a <code>v*</code> tag (or running the GitHub <b>build</b> workflow) produces a <code>.dmg</code>/<code>.zip</code> for macOS, an <code>.exe</code> for Windows, and an <code>.AppImage</code> for Linux. Or build one locally with <code>npm run dist</code>.
+          <b>Quick start.</b> Download Lea, run <code>claude</code>, and Lea starts working. First time, you may need <code>/login</code> in the terminal with <code>claude</code> — then Lea runs normally.
+        </div>
+        <div class="note">
+          <b>Or let Claude install Lea for you.</b> Open <code>claude</code> in any folder and paste this — it clones, installs, and launches for you.
+          <div class="codeblock" style="margin-top:12px">
+            <div class="code-head">
+              <span class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></span>
+              <span class="ttl">Paste into Claude Code</span>
+              <button class="copy" data-copy="Clone https://github.com/bobby33400/Lea.git into this folder, run `npm install` inside it, then start the app with `npm start`. If anything fails, fix it and try again.">Copy</button>
+            </div>
+<pre><code><span class="c"># Paste this to the claude CLI</span>
+Clone https://github.com/bobby33400/Lea.git into this
+folder, run <span class="k">npm install</span> inside it, then start
+the app with <span class="k">npm start</span>. If anything fails,
+fix it and try again.</code></pre>
+          </div>
         </div>
       </div>
 
-      <div class="req reveal">
-        <h3>Requirements</h3>
-        <ul>
-          <li><span class="ck">✓</span><span><b>macOS, Windows, or Linux</b> with <b>Node 18+</b>.</span></li>
-          <li><span class="ck">✓</span><span>The <b><a href="https://docs.claude.com/en/docs/claude-code">claude CLI</a></b> installed and logged in to your Claude subscription. Verify with <code>claude --version</code> and <code>claude -p "hi"</code>.</span></li>
-          <li><span class="ck">✓</span><span><b>Docker</b> <span class="muted">(optional)</span> — only if you want sandboxed runs on Windows or Linux.</span></li>
-        </ul>
-        <div class="note" style="background:rgba(217,119,87,0.07);border-color:rgba(217,119,87,0.3)">
-          Lea uses <b>your own</b> Claude account and respects your own limits. It is not a separate subscription.
+      <div class="reveal">
+        <div class="req">
+          <h3>Requirements</h3>
+          <ul>
+            <li><span class="ck">✓</span><span><b>macOS, Windows, or Linux</b> with <b>Node 18+</b>.</span></li>
+            <li><span class="ck">✓</span><span>The <b><a href="https://docs.claude.com/en/docs/claude-code">claude CLI</a></b> installed and logged in to your Claude subscription. Verify with <code>claude --version</code> and <code>claude -p "hi"</code>.</span></li>
+            <li><span class="ck">✓</span><span><b>Docker</b> <span class="muted">(optional)</span> — only if you want sandboxed runs on Windows or Linux.</span></li>
+          </ul>
+          <div class="note" style="background:rgba(217,119,87,0.07);border-color:rgba(217,119,87,0.3)">
+            Lea uses <b>your own</b> Claude account and respects your own limits. It is not a separate subscription.
+          </div>
+        </div>
+        <div class="note">
+          <b>Prefer a prebuilt installer?</b> Pushing a <code>v*</code> tag (or running the GitHub <b>build</b> workflow) produces a <code>.dmg</code>/<code>.zip</code> for macOS, an <code>.exe</code> for Windows, and an <code>.AppImage</code> for Linux. Or build one locally with <code>npm run dist</code>.
+        </div>
+        <div class="note" style="background:rgba(216,178,90,0.08);border-color:rgba(216,178,90,0.34)">
+          <b>⚠ Windows: app won't start?</b> Electron's npm package downloaded, but its actual program file (the Electron <code>.exe</code>) is missing or corrupted. <b>Most likely cause:</b> your project is inside <b>OneDrive</b>, which interferes with <code>node_modules</code> files.
+          <div style="margin-top:10px">Fix — reinstall Electron (run in your <code>Lea</code> folder):</div>
+<pre style="margin-top:8px;padding:12px 14px;background:#0e0f13;border:1px solid var(--line);border-radius:10px;font-size:12.5px;line-height:1.7"><code><span class="k">npm.cmd</span> uninstall electron
+<span class="k">npm.cmd</span> install electron
+<span class="k">npm.cmd</span> start</code></pre>
+          <div style="margin-top:10px">If it still fails, move the project out of OneDrive and reinstall:</div>
+<pre style="margin-top:8px;padding:12px 14px;background:#0e0f13;border:1px solid var(--line);border-radius:10px;font-size:12.5px;line-height:1.7"><code><span class="k">Move-Item</span> <span class="c">"&lt;your-OneDrive-path&gt;\ClaudeProjekte"</span> <span class="c">"C:\Dev\ClaudeProjekte"</span>
+<span class="k">cd</span> C:\Dev\ClaudeProjekte\LEA\Lea
+<span class="k">npm.cmd</span> install
+<span class="k">npm.cmd</span> start</code></pre>
         </div>
       </div>
     </div>
@@ -685,19 +818,45 @@
   <div class="wrap">
     <span class="eyebrow">Configuration</span>
     <h2 class="sec-title">Tune it from the ⚙ Settings panel.</h2>
-    <table class="cfg-table reveal">
+    <p class="sec-lead">Every default is adjustable — click any value to open it and choose from the options Lea gives you.</p>
+    <table class="cfg-table reveal" id="cfgTable">
       <thead><tr><th>Setting</th><th>Default</th><th>What it does</th></tr></thead>
       <tbody>
-        <tr><td>Auto-run</td><td>on</td><td>Master switch for autonomous execution</td></tr>
-        <tr><td>Sandbox backend</td><td>auto</td><td>Seatbelt on macOS, none elsewhere — or force Docker / none</td></tr>
-        <tr><td>Keep computer awake</td><td>on</td><td>Prevent sleep while tasks are pending</td></tr>
-        <tr><td>Quiet hours</td><td>off</td><td>Pause auto-run during a chosen time window</td></tr>
-        <tr><td>Default model</td><td>opus</td><td>Model used when a task doesn't specify one</td></tr>
-        <tr><td>Task timeout</td><td>30 min</td><td>Kill a task that runs too long</td></tr>
-        <tr><td>Max retries</td><td>2</td><td>Retries for non-limit errors</td></tr>
-        <tr><td>Token budget / block</td><td>off</td><td>Pause after N tokens per usage window</td></tr>
+        <tr><td>Auto-run</td><td>
+          <select class="cfg-select" aria-label="Auto-run">
+            <option selected>on</option><option>off</option>
+          </select></td><td>Master switch for autonomous execution</td></tr>
+        <tr><td>Sandbox backend</td><td>
+          <select class="cfg-select" aria-label="Sandbox backend">
+            <option selected>auto</option><option>seatbelt</option><option>docker</option><option>none</option>
+          </select></td><td>Seatbelt on macOS, none elsewhere — or force Docker / none</td></tr>
+        <tr><td>Keep computer awake</td><td>
+          <select class="cfg-select" aria-label="Keep computer awake">
+            <option selected>on</option><option>off</option>
+          </select></td><td>Prevent sleep while tasks are pending</td></tr>
+        <tr><td>Quiet hours</td><td>
+          <select class="cfg-select" aria-label="Quiet hours">
+            <option selected>off</option><option>10pm–7am</option><option>11pm–8am</option><option>custom…</option>
+          </select></td><td>Pause auto-run during a chosen time window</td></tr>
+        <tr><td>Default model</td><td>
+          <select class="cfg-select" aria-label="Default model">
+            <option selected>opus</option><option>sonnet</option><option>haiku</option>
+          </select></td><td>Model used when a task doesn't specify one</td></tr>
+        <tr><td>Task timeout</td><td>
+          <select class="cfg-select" aria-label="Task timeout">
+            <option>15 min</option><option selected>30 min</option><option>60 min</option><option>2 h</option><option>off</option>
+          </select></td><td>Kill a task that runs too long</td></tr>
+        <tr><td>Max retries</td><td>
+          <select class="cfg-select" aria-label="Max retries">
+            <option>0</option><option>1</option><option selected>2</option><option>3</option><option>5</option>
+          </select></td><td>Retries for non-limit errors</td></tr>
+        <tr><td>Token budget / block</td><td>
+          <select class="cfg-select" aria-label="Token budget per block">
+            <option selected>off</option><option>500k</option><option>1M</option><option>2M</option>
+          </select></td><td>Pause after N tokens per usage window</td></tr>
       </tbody>
     </table>
+    <div class="cfg-hint">↳ These mirror the in-app Settings — pick a value above to preview your choice.</div>
   </div>
 </section>
 
@@ -735,7 +894,7 @@
         <a href="https://github.com/bobby33400/Lea/blob/main/LICENSE">MIT License</a>
       </div>
     </div>
-    <p class="disclaimer">© Lea contributors · Released under the MIT License. Not affiliated with Anthropic. "Claude" is a trademark of Anthropic.</p>
+    <p class="disclaimer">🤖 This website was built by using Lea. · © Lea contributors · Released under the MIT License. Not affiliated with Anthropic. "Claude" is a trademark of Anthropic.</p>
   </div>
 </footer>
 
@@ -1190,6 +1349,16 @@
 
     fetchStars();
     setInterval(fetchStars, POLL_MS);
+  })();
+
+  // ----- config table: highlight a default that's been changed -----
+  (function () {
+    document.querySelectorAll('.cfg-select').forEach(function (sel) {
+      var def = sel.value;
+      sel.addEventListener('change', function () {
+        sel.classList.toggle('changed', sel.value !== def);
+      });
+    });
   })();
 
   // ----- reveal on scroll -----
