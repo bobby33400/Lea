@@ -2,6 +2,7 @@
 /* main.js — Electron entry: tray + window, IPC, keep-awake, live title. */
 const { app, ipcMain, dialog, shell, nativeImage, powerSaveBlocker, powerMonitor, Notification } = require('electron');
 const path = require('path');
+const { materializeAttachments } = require('./attachments');
 
 app.setName('Lea'); // affects userData path + about panel; call before 'ready'
 
@@ -212,7 +213,11 @@ function wireIpc(config) {
   ipcMain.handle('usage:get', () => usage.snapshot);
   ipcMain.handle('runner:state', () => runner.state());
   ipcMain.handle('tasks:list', () => store.list());
-  ipcMain.handle('tasks:add', (_e, t) => store.add(t || {}));
+  ipcMain.handle('tasks:add', (_e, t) => {
+    const data = t || {};
+    const images = materializeAttachments(data.cwd, data.images || []);
+    return store.add({ ...data, images });
+  });
   ipcMain.handle('tasks:update', (_e, id, patch) => store.update(id, patch || {}));
   ipcMain.handle('tasks:remove', (_e, id) => {
     store.remove(id);
@@ -228,8 +233,10 @@ function wireIpc(config) {
     return true;
   });
   ipcMain.handle('tasks:runNow', async (_e, id) => runner.runNow(id));
-  ipcMain.handle('tasks:reply', (_e, id, text) => {
-    const r = store.reply(id, text);
+  ipcMain.handle('tasks:reply', (_e, id, text, images) => {
+    const t = store.get(id);
+    const mats = materializeAttachments(t && t.cwd, images || []);
+    const r = store.reply(id, text, mats);
     if (r.ok) runner.tick(); // pick up the reply promptly
     return r;
   });
@@ -244,6 +251,13 @@ function wireIpc(config) {
   ipcMain.handle('dialog:pickFolder', async () => {
     const r = await dialog.showOpenDialog(mb.window, { properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];
+  });
+  ipcMain.handle('dialog:pickImages', async () => {
+    const r = await dialog.showOpenDialog(mb.window, {
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'heic'] }],
+    });
+    return r.canceled ? [] : r.filePaths;
   });
   ipcMain.handle('app:openDataDir', () => {
     shell.openPath(config.DATA_DIR);

@@ -41,6 +41,20 @@ const FOLLOWUP_INSTRUCTION = [
   'List ONLY actions you could not complete yourself that require the human — e.g. pushing to a remote, applying a database migration, deploying, rotating or adding a secret/API key, approving risky changes, or manual testing. Keep each item short and actionable. If there are none, write NONE on a single line between the markers.',
 ].join('\n');
 
+// Reference attached images by their (project-relative) path so headless Claude
+// reads them with its Read tool — the supported way to pass images to `claude -p`.
+function promptWithImages(prompt, rels) {
+  const list = (rels || []).filter(Boolean);
+  if (!list.length) return prompt;
+  const bullets = list.map((r) => `- ${r}`).join('\n');
+  const noun = list.length > 1 ? 'images' : 'image';
+  return (
+    `${prompt}\n\n` +
+    `The user attached ${list.length} ${noun} to this message (paths are relative to the project folder). ` +
+    `Use your Read tool to view ${list.length > 1 ? 'each of them' : 'it'} before responding:\n${bullets}`
+  );
+}
+
 class Runner extends EventEmitter {
   constructor({ store, usage, getIdleSeconds }) {
     super();
@@ -206,7 +220,9 @@ class Runner extends EventEmitter {
     const model = this._modelFor(task); // cheap "away" model if idle, else your default
     // A queued chat reply continues the existing claude session via --resume.
     const isReply = !!(task.queuedReply && task.sessionId);
-    const prompt = isReply ? task.queuedReply : task.prompt;
+    const basePrompt = isReply ? task.queuedReply : task.prompt;
+    const runImages = isReply ? task.queuedReplyImages || [] : task.images || [];
+    const prompt = promptWithImages(basePrompt, runImages.map((i) => i.rel));
     const resumeId = isReply ? task.sessionId : null;
     const reportCtx = report.start(task, model, prompt); // create Lea_Reports/<file>.md + snapshot
 
@@ -234,7 +250,7 @@ class Runner extends EventEmitter {
     const strip = (s) => String(s || '').replace(/===LEA-FOLLOWUPS===[\s\S]*?===END-FOLLOWUPS===/i, '').trim();
     let finished = null;
     if (result.kind === 'ok') {
-      const patch = { status: 'done', lastError: null, followups: result.followups || [], reportFile, queuedReply: null };
+      const patch = { status: 'done', lastError: null, followups: result.followups || [], reportFile, queuedReply: null, queuedReplyImages: null };
       if (result.sessionId) patch.sessionId = result.sessionId; // for future --resume replies
       this.store.update(task.id, patch);
       this.store.addThreadMessage(task.id, {
@@ -262,7 +278,7 @@ class Runner extends EventEmitter {
         this.store.update(task.id, { status: 'queued', attempts, lastError: result.message });
         this._setWait(Date.now() + 60 * 1000, 'retrying after error');
       } else {
-        this.store.update(task.id, { status: 'failed', attempts, lastError: result.message, reportFile, queuedReply: null });
+        this.store.update(task.id, { status: 'failed', attempts, lastError: result.message, reportFile, queuedReply: null, queuedReplyImages: null });
         this.store.addThreadMessage(task.id, {
           role: 'assistant',
           text: '⚠️ Failed: ' + (result.message || result.error || 'error'),
