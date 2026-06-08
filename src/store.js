@@ -58,15 +58,20 @@ class Store extends EventEmitter {
   }
 
   // Queue a chat reply that continues the task's claude session on its next run.
-  reply(id, text) {
+  // `images` is an optional [{ name, rel, abs }] of attachments to show Claude.
+  reply(id, text, images) {
     const t = this.get(id);
     if (!t) return { ok: false, error: 'Task not found.' };
     if (t.status === 'running') return { ok: false, error: 'Task is still running — wait for it to finish.' };
-    const clean = String(text || '').trim();
+    const imgs = Array.isArray(images) ? images : [];
+    let clean = String(text || '').trim();
+    // Allow an image-only reply by giving Claude a sensible default instruction.
+    if (!clean && imgs.length) clean = imgs.length > 1 ? 'Please look at the attached images.' : 'Please look at the attached image.';
     if (!clean) return { ok: false, error: 'Empty message.' };
     t.thread = t.thread || [];
-    t.thread.push({ role: 'user', text: clean, at: Date.now() });
+    t.thread.push({ role: 'user', text: clean, at: Date.now(), images: imgs });
     t.queuedReply = clean;
+    t.queuedReplyImages = imgs;
     t.status = 'queued';
     t.lastError = null;
     t.updatedAt = Date.now();
@@ -99,8 +104,9 @@ class Store extends EventEmitter {
     return this.tasks.find((t) => t.id === id);
   }
 
-  add({ title, prompt, cwd, model } = {}) {
+  add({ title, prompt, cwd, model, images } = {}) {
     const now = Date.now();
+    const imgs = Array.isArray(images) ? images : [];
     const task = {
       id: uid(),
       title: (title || '').trim() || (prompt || '').trim().slice(0, 48) || 'Untitled task',
@@ -115,7 +121,9 @@ class Store extends EventEmitter {
       lastError: null,
       sessionId: null, // latest claude session, for --resume continuations
       queuedReply: null, // a chat reply waiting to be sent on the next run
-      thread: [{ role: 'user', text: (prompt || '').trim(), at: now }], // chat history
+      queuedReplyImages: null, // images attached to that pending reply
+      images: imgs, // images attached to the initial prompt (shown on first run)
+      thread: [{ role: 'user', text: (prompt || '').trim(), at: now, images: imgs }], // chat history
     };
     this.tasks.push(task);
     this._save();

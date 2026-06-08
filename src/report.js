@@ -13,7 +13,7 @@ const path = require('path');
 
 const REPORT_DIRNAME = 'Lea_Reports';
 const SKIP_DIRS = new Set([
-  'node_modules', '.git', REPORT_DIRNAME, 'dist', 'build', 'out', '.next', '.nuxt',
+  'node_modules', '.git', REPORT_DIRNAME, '.lea-attachments', 'dist', 'build', 'out', '.next', '.nuxt',
   '.expo', '.turbo', 'coverage', '.cache', 'Pods', '.gradle', 'DerivedData',
   'vendor', '.venv', '__pycache__', '.idea', '.vscode', '.svelte-kit',
 ]);
