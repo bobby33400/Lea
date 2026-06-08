@@ -232,4 +232,36 @@ const base = {
   ok('summarizeStreamEvent + describeTool produce readable progress lines');
 }
 
+// --- image attachments: copy into project, POSIX relative path, gitignore ---
+{
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { materializeAttachments, ATTACH_DIRNAME } = require('../src/attachments');
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lea-att-'));
+  const proj = path.join(tmp, 'proj');
+  fs.mkdirSync(proj);
+  const src = path.join(tmp, 'My Screenshot!.png');
+  fs.writeFileSync(src, 'PNGDATA');
+
+  // deterministic stamp/rand so the test doesn't depend on the clock
+  let i = 0;
+  const out = materializeAttachments(proj, [src, '/does/not/exist.png'], () => 1000 + i++, () => 7);
+
+  assert.strictEqual(out.length, 1, 'unreadable source is skipped, good one kept');
+  assert.strictEqual(out[0].name, 'My Screenshot!.png', 'keeps original display name');
+  assert.ok(out[0].rel.startsWith(ATTACH_DIRNAME + '/'), 'rel is project-relative');
+  assert.ok(!out[0].rel.includes('\\') && !out[0].rel.includes(' '), 'rel is POSIX + sanitized');
+  assert.ok(out[0].rel.endsWith('My_Screenshot_.png'), 'unsafe chars replaced in stored name');
+  assert.strictEqual(fs.readFileSync(out[0].abs, 'utf8'), 'PNGDATA', 'file actually copied');
+  assert.strictEqual(path.relative(proj, out[0].abs).replace(/\\/g, '/'), out[0].rel, 'abs matches rel under cwd');
+  assert.strictEqual(fs.readFileSync(path.join(proj, ATTACH_DIRNAME, '.gitignore'), 'utf8'), '*\n', 'auto-gitignored');
+  assert.deepStrictEqual(materializeAttachments('', [src]), [], 'no cwd => nothing');
+  assert.deepStrictEqual(materializeAttachments(proj, []), [], 'no images => nothing');
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+  ok('materializeAttachments copies into .lea-attachments with a POSIX relative path');
+}
+
 console.log(`\nselftest OK — ${n} checks passed`);
