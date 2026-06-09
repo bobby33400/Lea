@@ -30,7 +30,7 @@
     "start": "electron .",
     "selftest": "node scripts/selftest.js",
     "make:icon": "node scripts/make-app-icon.js",
-    "check": "node --check src/main.js && node --check src/runner.js && node --check src/usage.js && node --check src/store.js && node --check src/sandbox.js && node --check src/classify.js && node --check src/config.js && node --check src/icon.js && node --check src/spawnutil.js && node --check src/attachments.js && node --check src/preload.js && node --check src/renderer/app.js",
+    "check": "node --check src/main.js && node --check src/runner.js && node --check src/usage.js && node --check src/store.js && node --check src/sandbox.js && node --check src/classify.js && node --check src/config.js && node --check src/icon.js && node --check src/spawnutil.js && node --check src/preload.js && node --check src/renderer/app.js",
     "dist": "electron-builder",
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win",

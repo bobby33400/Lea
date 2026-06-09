@@ -2,7 +2,6 @@
 /* main.js — Electron entry: tray + window, IPC, keep-awake, live title. */
 const { app, ipcMain, dialog, shell, nativeImage, powerSaveBlocker, powerMonitor, Notification } = require('electron');
 const path = require('path');
-const { materializeAttachments } = require('./attachments');
 
 app.setName('Lea'); // affects userData path + about panel; call before 'ready'
 
@@ -193,6 +192,44 @@ function startTitleTimer() {
   titleTimer = setInterval(tick, 1000);
 }
 
+// Persist chat image attachments into the app data dir so they survive even if
+// the user moves/deletes the original, and so the runner has a stable path to
+// hand Claude. Accepts either picked file paths or pasted data: URLs; returns
+// [{ path, name }] for the ones successfully saved.
+function saveAttachments(config, taskId, attachments) {
+  const fs = require('fs');
+  const path = require('path');
+  if (!Array.isArray(attachments) || !attachments.length) return [];
+  const dir = path.join(config.DATA_DIR, 'attachments', String(taskId));
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {}
+  const MAX_BYTES = 25 * 1024 * 1024;
+  const stamp = Date.now().toString(36);
+  const out = [];
+  attachments.slice(0, 8).forEach((a, i) => {
+    try {
+      const base = String((a && a.name) || `image-${i}`).replace(/[^\w.\-]+/g, '_').slice(-64) || `image-${i}`;
+      const dest = path.join(dir, `${stamp}-${i}-${base}`);
+      if (a && a.dataUrl) {
+        const m = /^data:[^;]+;base64,(.*)$/s.exec(a.dataUrl);
+        if (!m) return;
+        const buf = Buffer.from(m[1], 'base64');
+        if (!buf.length || buf.length > MAX_BYTES) return;
+        fs.writeFileSync(dest, buf);
+      } else if (a && a.path) {
+        const st = fs.statSync(a.path);
+        if (!st.isFile() || st.size > MAX_BYTES) return;
+        fs.copyFileSync(a.path, dest);
+      } else {
+        return;
+      }
+      out.push({ path: dest, name: (a && a.name) || path.basename(dest) });
+    } catch {}
+  });
+  return out;
+}
+
 function readLatestLog(id) {
   const fs = require('fs');
   const t = store.get(id);
@@ -214,9 +251,10 @@ function wireIpc(config) {
   ipcMain.handle('runner:state', () => runner.state());
   ipcMain.handle('tasks:list', () => store.list());
   ipcMain.handle('tasks:add', (_e, t) => {
-    const data = t || {};
-    const images = materializeAttachments(data.cwd, data.images || []);
-    return store.add({ ...data, images });
+    t = t || {};
+    const id = require('./store').uid();
+    const attachments = saveAttachments(config, id, t.attachments);
+    return store.add({ ...t, id, attachments });
   });
   ipcMain.handle('tasks:update', (_e, id, patch) => store.update(id, patch || {}));
   ipcMain.handle('tasks:remove', (_e, id) => {
@@ -233,12 +271,19 @@ function wireIpc(config) {
     return true;
   });
   ipcMain.handle('tasks:runNow', async (_e, id) => runner.runNow(id));
-  ipcMain.handle('tasks:reply', (_e, id, text, images) => {
-    const t = store.get(id);
-    const mats = materializeAttachments(t && t.cwd, images || []);
-    const r = store.reply(id, text, mats);
+  ipcMain.handle('tasks:reply', (_e, id, text, attachments) => {
+    const saved = saveAttachments(config, id, attachments);
+    const r = store.reply(id, text, saved);
     if (r.ok) runner.tick(); // pick up the reply promptly
     return r;
+  });
+  ipcMain.handle('dialog:pickImages', async () => {
+    const r = await dialog.showOpenDialog(mb.window, {
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff', 'heic', 'heif', 'svg'] }],
+    });
+    if (r.canceled) return [];
+    return r.filePaths.map((p) => ({ path: p, name: path.basename(p) }));
   });
   ipcMain.handle('logs:get', (_e, id) => readLatestLog(id));
   ipcMain.handle('settings:get', () => config.getSettings());
@@ -251,13 +296,6 @@ function wireIpc(config) {
   ipcMain.handle('dialog:pickFolder', async () => {
     const r = await dialog.showOpenDialog(mb.window, { properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];
-  });
-  ipcMain.handle('dialog:pickImages', async () => {
-    const r = await dialog.showOpenDialog(mb.window, {
-      properties: ['openFile', 'multiSelections'],
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'heic'] }],
-    });
-    return r.canceled ? [] : r.filePaths;
   });
   ipcMain.handle('app:openDataDir', () => {
     shell.openPath(config.DATA_DIR);

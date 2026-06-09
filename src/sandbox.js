@@ -18,6 +18,31 @@
 const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 const DOCKER_WORKDIR = '/workspace'; // where the project is mounted inside the container
 
+// Model tiers, ranked by capability/cost (higher = more capable & pricier).
+const MODEL_RANK = { haiku: 1, sonnet: 2, opus: 3 };
+
+/**
+ * Decide the --fallback-model to actually pass for a given primary model.
+ *
+ * The configured fallback (default 'sonnet') is only a valid safety net BENEATH
+ * the chosen model. It's invisible while the model is the default 'opus', but
+ * the moment you switch the model in Settings it becomes wrong:
+ *   - 'sonnet' → '--model sonnet --fallback-model sonnet' (primary == fallback);
+ *     a contradictory flag pair Claude rejects, so every run fails.
+ *   - 'haiku'  → an overloaded haiku run silently ESCALATES to the pricier
+ *     sonnet, defeating the reason you picked haiku.
+ * So: drop the fallback when it duplicates the primary or isn't strictly cheaper.
+ * Unknown aliases (custom model ids) keep whatever was configured.
+ */
+function chooseFallback(model, fallback) {
+  if (!fallback || !model) return fallback || null;
+  if (fallback === model) return null;
+  const rm = MODEL_RANK[model];
+  const rf = MODEL_RANK[fallback];
+  if (rm != null && rf != null && rf >= rm) return null; // never duplicate or escalate
+  return fallback;
+}
+
 function esc(p) {
   return String(p).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
@@ -90,7 +115,8 @@ function buildClaudeArgs(o, addDirs) {
   const args = ['-p', o.prompt, '--output-format', 'stream-json', '--verbose', '--permission-mode', o.permissionMode || 'bypassPermissions'];
   if (o.resumeSessionId) args.push('--resume', o.resumeSessionId); // continue a chat thread
   if (o.model) args.push('--model', o.model);
-  if (o.fallbackModel) args.push('--fallback-model', o.fallbackModel);
+  const fallback = chooseFallback(o.model, o.fallbackModel);
+  if (fallback) args.push('--fallback-model', fallback);
   if (o.appendSystemPrompt) args.push('--append-system-prompt', o.appendSystemPrompt);
   for (const d of addDirs || []) args.push('--add-dir', d);
   return args;
@@ -114,11 +140,14 @@ function buildCommand(o) {
     if (o.containerName) args.push('--name', o.containerName);
     // Mount ONLY the project dir, writable, at a fixed workdir inside the container.
     args.push('-v', `${o.cwd}:${DOCKER_WORKDIR}`, '-w', DOCKER_WORKDIR);
+    // Mount any image-attachment dirs read-only so Claude can Read them.
+    for (const m of o.attachmentMounts || []) args.push('-v', `${m.hostDir}:${m.containerDir}:ro`);
     // Pass the subscription token through from the runner's environment (value
     // is NOT embedded in argv). Caller sets CLAUDE_CODE_OAUTH_TOKEN in env.
     if (o.dockerToken) args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN');
     for (const e of o.dockerEnvPass || []) args.push('-e', e);
-    args.push(image, 'claude', ...buildClaudeArgs(o, [DOCKER_WORKDIR]));
+    const dockerAddDirs = [DOCKER_WORKDIR, ...(o.attachmentMounts || []).map((m) => m.containerDir)];
+    args.push(image, 'claude', ...buildClaudeArgs(o, dockerAddDirs));
     return { bin: 'docker', args };
   }
 
@@ -131,6 +160,7 @@ module.exports = {
   buildProfile: buildSeatbeltProfile, // backwards-compatible alias
   buildClaudeArgs,
   buildCommand,
+  chooseFallback,
   SANDBOX_EXEC,
   DOCKER_WORKDIR,
 };

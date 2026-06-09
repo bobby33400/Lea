@@ -41,18 +41,13 @@ const FOLLOWUP_INSTRUCTION = [
   'List ONLY actions you could not complete yourself that require the human — e.g. pushing to a remote, applying a database migration, deploying, rotating or adding a secret/API key, approving risky changes, or manual testing. Keep each item short and actionable. If there are none, write NONE on a single line between the markers.',
 ].join('\n');
 
-// Reference attached images by their (project-relative) path so headless Claude
-// reads them with its Read tool — the supported way to pass images to `claude -p`.
-function promptWithImages(prompt, rels) {
-  const list = (rels || []).filter(Boolean);
-  if (!list.length) return prompt;
-  const bullets = list.map((r) => `- ${r}`).join('\n');
-  const noun = list.length > 1 ? 'images' : 'image';
-  return (
-    `${prompt}\n\n` +
-    `The user attached ${list.length} ${noun} to this message (paths are relative to the project folder). ` +
-    `Use your Read tool to view ${list.length > 1 ? 'each of them' : 'it'} before responding:\n${bullets}`
-  );
+// Fold attached image paths into the prompt so headless Claude knows to Read
+// them. `refs` are paths as seen from inside the sandbox/container.
+function withImageRefs(text, refs) {
+  if (!refs || !refs.length) return text;
+  const many = refs.length > 1;
+  const head = `\n\n[The user attached ${refs.length} image${many ? 's' : ''}. Use the Read tool on ${many ? 'these paths' : 'this path'} to view ${many ? 'them' : 'it'} before replying:]`;
+  return (String(text || '').trim() || '(See the attached image.)') + head + '\n' + refs.map((r) => '- ' + r).join('\n');
 }
 
 class Runner extends EventEmitter {
@@ -220,15 +215,14 @@ class Runner extends EventEmitter {
     const model = this._modelFor(task); // cheap "away" model if idle, else your default
     // A queued chat reply continues the existing claude session via --resume.
     const isReply = !!(task.queuedReply && task.sessionId);
-    const basePrompt = isReply ? task.queuedReply : task.prompt;
-    const runImages = isReply ? task.queuedReplyImages || [] : task.images || [];
-    const prompt = promptWithImages(basePrompt, runImages.map((i) => i.rel));
+    const prompt = isReply ? task.queuedReply : task.prompt;
     const resumeId = isReply ? task.sessionId : null;
+    const attachments = (isReply ? task.queuedAttachments : task.attachments) || [];
     const reportCtx = report.start(task, model, prompt); // create Lea_Reports/<file>.md + snapshot
 
     let result;
     try {
-      result = await this._exec(task, logFile, model, { prompt, resumeId });
+      result = await this._exec(task, logFile, model, { prompt, resumeId, attachments });
     } catch (e) {
       result = { kind: 'error', error: 'spawn', message: String((e && e.message) || e) };
     }
@@ -250,7 +244,7 @@ class Runner extends EventEmitter {
     const strip = (s) => String(s || '').replace(/===LEA-FOLLOWUPS===[\s\S]*?===END-FOLLOWUPS===/i, '').trim();
     let finished = null;
     if (result.kind === 'ok') {
-      const patch = { status: 'done', lastError: null, followups: result.followups || [], reportFile, queuedReply: null, queuedReplyImages: null };
+      const patch = { status: 'done', lastError: null, followups: result.followups || [], reportFile, queuedReply: null, queuedAttachments: null };
       if (result.sessionId) patch.sessionId = result.sessionId; // for future --resume replies
       this.store.update(task.id, patch);
       this.store.addThreadMessage(task.id, {
@@ -278,7 +272,7 @@ class Runner extends EventEmitter {
         this.store.update(task.id, { status: 'queued', attempts, lastError: result.message });
         this._setWait(Date.now() + 60 * 1000, 'retrying after error');
       } else {
-        this.store.update(task.id, { status: 'failed', attempts, lastError: result.message, reportFile, queuedReply: null, queuedReplyImages: null });
+        this.store.update(task.id, { status: 'failed', attempts, lastError: result.message, reportFile, queuedReply: null, queuedAttachments: null });
         this.store.addThreadMessage(task.id, {
           role: 'assistant',
           text: '⚠️ Failed: ' + (result.message || result.error || 'error'),
@@ -342,16 +336,37 @@ class Runner extends EventEmitter {
       const containerName = backend === 'docker' ? `lea-${task.id}` : null;
       const token = backend === 'docker' ? config.get('claudeOAuthToken') || '' : '';
 
+      // Image attachments: make them readable from inside the sandbox/container,
+      // and reference their in-sandbox paths from the prompt.
+      const attachments = (runOpts && runOpts.attachments) || [];
+      const addDirs = [task.cwd];
+      let attachmentMounts = [];
+      let prompt = (runOpts && runOpts.prompt) || task.prompt;
+      if (attachments.length) {
+        const hostDir = path.dirname(attachments[0].path);
+        if (backend === 'docker') {
+          const CONTAINER_ATTACH = '/lea-attachments';
+          attachmentMounts = [{ hostDir, containerDir: CONTAINER_ATTACH }];
+          prompt = withImageRefs(prompt, attachments.map((a) => CONTAINER_ATTACH + '/' + path.basename(a.path)));
+        } else {
+          // seatbelt allows reads everywhere; 'none' is unrestricted. Add the dir
+          // so the file is in-workspace regardless of permission mode.
+          addDirs.push(hostDir);
+          prompt = withImageRefs(prompt, attachments.map((a) => a.path));
+        }
+      }
+
       const { bin, args } = buildCommand({
         backend,
         claudeBin: config.resolveClaudeBin(),
-        prompt: (runOpts && runOpts.prompt) || task.prompt,
+        prompt,
         cwd: realpath(task.cwd),
         model: model || task.model || config.get('model'),
         fallbackModel: config.get('fallbackModel'),
         permissionMode: config.get('permissionMode') || 'bypassPermissions',
         appendSystemPrompt: FOLLOWUP_INSTRUCTION,
-        addDirs: [task.cwd],
+        addDirs,
+        attachmentMounts,
         sbFile,
         dockerImage: config.get('dockerImage'),
         containerName,

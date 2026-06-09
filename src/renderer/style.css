@@ -344,60 +344,54 @@ body {
   flex: 1;
   resize: none;
 }
-button.attach {
+.chat-input .icon-btn {
   flex: 0 0 auto;
-  padding: 7px 10px;
-  font-size: 15px;
+  padding: 7px 9px;
+  align-self: stretch;
 }
-button.attach:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* staged image thumbnails (chat input + new-task form) */
-.attach-previews {
+/* pending image attachments waiting to be sent */
+.chat-attach {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin: 6px 0 0;
 }
-.attach-previews:empty {
+.chat-attach:empty {
   display: none;
 }
 .attach-chip {
-  position: relative;
-  width: 46px;
-  height: 46px;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: var(--card2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px 4px 3px 3px;
+  font-size: 11px;
 }
-.attach-chip img {
-  width: 100%;
-  height: 100%;
+.attach-thumb {
+  width: 28px;
+  height: 28px;
   object-fit: cover;
+  border-radius: 5px;
   display: block;
 }
+.attach-name {
+  color: var(--muted);
+}
 .attach-x {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  width: 16px;
-  height: 16px;
-  line-height: 1;
-  padding: 0;
+  background: transparent;
   border: 0;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.65);
-  color: #fff;
-  font-size: 13px;
+  color: var(--muted);
   cursor: pointer;
+  font-size: 11px;
+  padding: 0 3px;
+  line-height: 1;
 }
 .attach-x:hover {
-  background: var(--red);
+  color: var(--red);
 }
-
-/* images shown inside chat bubbles */
+/* images shown inside a sent chat bubble */
 .bubble-imgs {
   display: flex;
   flex-wrap: wrap;
@@ -405,10 +399,11 @@ button.attach:disabled {
   margin-top: 6px;
 }
 .bubble-img {
-  max-width: 160px;
-  max-height: 160px;
+  max-width: 150px;
+  max-height: 150px;
   border-radius: 8px;
   border: 1px solid var(--line);
+  cursor: pointer;
   display: block;
 }
 .badge {

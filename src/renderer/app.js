@@ -7,13 +7,6 @@ const el = (tag, cls, txt) => {
   if (txt != null) e.textContent = txt;
   return e;
 };
-// Turn an absolute path into a file:// URL the renderer can show as an <img>.
-// Handles Windows drive paths (C:\… → file:///C:/…) and POSIX paths alike.
-const fileUrl = (p) => {
-  let s = String(p || '').replace(/\\/g, '/');
-  if (!s.startsWith('/')) s = '/' + s;
-  return 'file://' + s;
-};
 
 let usage = { active: false, resetAt: null, startAt: null, totalTokens: 0, costUSD: 0, models: [] };
 let runnerState = { busy: false, waitUntil: null, waitReason: null, autoRun: true, phase: 'idle' };
@@ -23,8 +16,6 @@ let doneCollapsed = false;
 let liveActivity = {}; // taskId -> [recent short activity lines]
 let logTimer = null; // refresh timer while a log panel is open
 let chatTaskId = null; // task whose chat panel is currently open
-let chatAttachments = []; // image paths staged in the open chat panel
-let formAttachments = []; // image paths staged in the open "New task" form
 
 const fmtDur = (ms) => {
   if (ms == null) return '—:—';
@@ -262,26 +253,6 @@ function closeOverlay() {
   }
 }
 
-// Render the little thumbnail chips for images staged before sending. `arr`
-// holds absolute host paths; removing a chip mutates it in place.
-function renderAttachPreviews(container, arr) {
-  container.innerHTML = '';
-  arr.forEach((p, i) => {
-    const chip = el('div', 'attach-chip');
-    const img = el('img');
-    img.src = fileUrl(p);
-    chip.appendChild(img);
-    const x = el('button', 'attach-x', '×');
-    x.title = 'Remove';
-    x.onclick = () => {
-      arr.splice(i, 1);
-      renderAttachPreviews(container, arr);
-    };
-    chip.appendChild(x);
-    container.appendChild(chip);
-  });
-}
-
 // Chat / reply panel for a task: shows the conversation, lets you send a
 // follow-up ("approve", "also do X") that continues the same claude session.
 function openChat(taskId) {
@@ -299,23 +270,10 @@ function openChat(taskId) {
   thread.id = 'chat-thread';
   wrap.appendChild(thread);
 
-  chatAttachments = [];
-  const previews = el('div', 'attach-previews');
-  previews.id = 'chat-previews';
-  renderAttachPreviews(previews, chatAttachments);
-  wrap.appendChild(previews);
+  const att = makeAttachUI();
+  wrap.appendChild(att.strip);
 
   const row = el('div', 'chat-input');
-  const attach = el('button', 'btn attach', '📎');
-  attach.id = 'chat-attach';
-  attach.title = 'Attach image';
-  attach.onclick = async () => {
-    const picked = await window.api.pickImages();
-    if (picked && picked.length) {
-      chatAttachments.push(...picked);
-      renderAttachPreviews(previews, chatAttachments);
-    }
-  };
   const ta = el('textarea', 'in');
   ta.id = 'chat-ta';
   ta.rows = 2;
@@ -323,12 +281,11 @@ function openChat(taskId) {
   send.id = 'chat-send';
   const doSend = async () => {
     const v = ta.value.trim();
-    if (!v && !chatAttachments.length) return;
+    if (!v && !att.list.length) return;
+    const payload = att.payload();
     ta.value = '';
-    const imgs = chatAttachments.slice();
-    chatAttachments = [];
-    renderAttachPreviews(previews, chatAttachments);
-    const r = await window.api.tasksReply(taskId, v, imgs);
+    att.clear();
+    const r = await window.api.tasksReply(taskId, v, payload);
     if (r && !r.ok && r.error) toast(r.error);
   };
   send.onclick = doSend;
@@ -338,7 +295,8 @@ function openChat(taskId) {
       doSend();
     }
   };
-  row.appendChild(attach);
+  ta.onpaste = att.onPaste;
+  row.appendChild(att.attachBtn);
   row.appendChild(ta);
   row.appendChild(send);
   wrap.appendChild(row);
@@ -346,6 +304,69 @@ function openChat(taskId) {
   openOverlay(wrap);
   renderChat();
   setTimeout(() => ta.focus(), 30);
+}
+
+// Reusable image-attachment control: a 📎 button, clipboard-paste handler, and a
+// strip of removable thumbnails. Bound to its own in-memory list of pending
+// images. Returns the pieces a form wires up + helpers to read/clear them.
+function makeAttachUI() {
+  const list = [];
+  const strip = el('div', 'chat-attach');
+  const render = () => {
+    strip.innerHTML = '';
+    list.forEach((a, i) => {
+      const chip = el('div', 'attach-chip');
+      const img = el('img', 'attach-thumb');
+      img.src = a.preview;
+      chip.appendChild(img);
+      chip.appendChild(el('span', 'attach-name', a.name.length > 18 ? a.name.slice(0, 17) + '…' : a.name));
+      const x = el('button', 'attach-x', '✕');
+      x.title = 'Remove';
+      x.onclick = () => {
+        list.splice(i, 1);
+        render();
+      };
+      chip.appendChild(x);
+      strip.appendChild(chip);
+    });
+  };
+  const push = (a) => {
+    if (list.length >= 8) return toast('Up to 8 images per message.');
+    list.push(a);
+    render();
+  };
+  const attachBtn = el('button', 'btn icon-btn', '📎');
+  attachBtn.title = 'Attach image(s)';
+  attachBtn.onclick = async () => {
+    const picked = await window.api.pickImages();
+    for (const p of picked || []) push({ name: p.name, path: p.path, preview: 'file://' + p.path });
+  };
+  // Paste a screenshot / image straight from the clipboard.
+  const onPaste = (e) => {
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for (const it of items) {
+      if (it.kind === 'file' && it.type && it.type.startsWith('image/')) {
+        const file = it.getAsFile();
+        if (!file) continue;
+        const ext = (it.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+        const reader = new FileReader();
+        reader.onload = () =>
+          push({ name: file.name || 'pasted-' + (list.length + 1) + '.' + ext, dataUrl: reader.result, preview: reader.result });
+        reader.readAsDataURL(file);
+      }
+    }
+  };
+  return {
+    strip,
+    attachBtn,
+    onPaste,
+    list,
+    payload: () => list.map((a) => ({ name: a.name, path: a.path, dataUrl: a.dataUrl })),
+    clear: () => {
+      list.length = 0;
+      render();
+    },
+  };
 }
 
 function renderChat() {
@@ -358,15 +379,16 @@ function renderChat() {
   for (const m of t.thread || []) {
     const b = el('div', 'bubble ' + (m.role || 'assistant') + (m.error ? ' err' : ''));
     if (m.text) b.appendChild(renderInline(m.text));
-    if (m.images && m.images.length) {
-      const strip = el('div', 'bubble-imgs');
-      for (const im of m.images) {
-        const img = el('img', 'bubble-img');
-        img.src = fileUrl(im.abs || im.rel);
-        img.title = im.name || '';
-        strip.appendChild(img);
+    if (m.attachments && m.attachments.length) {
+      const imgs = el('div', 'bubble-imgs');
+      for (const a of m.attachments) {
+        const im = el('img', 'bubble-img');
+        im.src = 'file://' + a.path;
+        im.title = a.name || '';
+        im.onclick = () => window.api.openPath(a.path);
+        imgs.appendChild(im);
       }
-      b.appendChild(strip);
+      b.appendChild(imgs);
     }
     thread.appendChild(b);
   }
@@ -379,10 +401,8 @@ function renderChat() {
   }
   const send = document.getElementById('chat-send');
   const ta = document.getElementById('chat-ta');
-  const attach = document.getElementById('chat-attach');
   const canSend = !running && t.sessionId && !t.queuedReply;
   if (send) send.disabled = !canSend;
-  if (attach) attach.disabled = !canSend;
   if (ta) {
     ta.disabled = running;
     ta.placeholder = running
@@ -429,19 +449,14 @@ function addForm() {
   prompt.rows = 5;
   wrap.appendChild(prompt);
 
-  formAttachments = [];
-  wrap.appendChild(el('div', 'lbl', 'Images (optional)'));
-  const fPreviews = el('div', 'attach-previews');
-  const addImg = el('button', 'in btn-folder', '🖼 Attach images…');
-  addImg.onclick = async () => {
-    const picked = await window.api.pickImages();
-    if (picked && picked.length) {
-      formAttachments.push(...picked);
-      renderAttachPreviews(fPreviews, formAttachments);
-    }
-  };
-  wrap.appendChild(addImg);
-  wrap.appendChild(fPreviews);
+  const att = makeAttachUI();
+  prompt.onpaste = att.onPaste; // paste a screenshot right into the instructions
+  const imgRow = el('div', 'row gap');
+  imgRow.style.marginTop = '6px';
+  att.attachBtn.textContent = '📎 Attach image(s)';
+  imgRow.appendChild(att.attachBtn);
+  wrap.appendChild(imgRow);
+  wrap.appendChild(att.strip);
 
   wrap.appendChild(el('div', 'lbl', 'Project folder'));
   let chosen = '';
@@ -479,7 +494,7 @@ function addForm() {
   save.onclick = async () => {
     if (!prompt.value.trim()) return prompt.focus();
     if (!chosen) return toast('Pick a project folder first');
-    await window.api.tasksAdd({ title: title.value, prompt: prompt.value, cwd: chosen, model: model.value, images: formAttachments });
+    await window.api.tasksAdd({ title: title.value, prompt: prompt.value, cwd: chosen, model: model.value, attachments: att.payload() });
     closeOverlay();
   };
   actions.appendChild(cancel);

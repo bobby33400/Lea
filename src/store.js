@@ -58,20 +58,23 @@ class Store extends EventEmitter {
   }
 
   // Queue a chat reply that continues the task's claude session on its next run.
-  // `images` is an optional [{ name, rel, abs }] of attachments to show Claude.
-  reply(id, text, images) {
+  // `attachments` is an optional [{ path, name }] of saved image files to show
+  // Claude alongside the text.
+  reply(id, text, attachments) {
     const t = this.get(id);
     if (!t) return { ok: false, error: 'Task not found.' };
     if (t.status === 'running') return { ok: false, error: 'Task is still running — wait for it to finish.' };
-    const imgs = Array.isArray(images) ? images : [];
-    let clean = String(text || '').trim();
-    // Allow an image-only reply by giving Claude a sensible default instruction.
-    if (!clean && imgs.length) clean = imgs.length > 1 ? 'Please look at the attached images.' : 'Please look at the attached image.';
-    if (!clean) return { ok: false, error: 'Empty message.' };
+    const clean = String(text || '').trim();
+    const atts = (Array.isArray(attachments) ? attachments : [])
+      .filter((a) => a && a.path)
+      .map((a) => ({ path: a.path, name: a.name || '' }));
+    if (!clean && !atts.length) return { ok: false, error: 'Empty message.' };
     t.thread = t.thread || [];
-    t.thread.push({ role: 'user', text: clean, at: Date.now(), images: imgs });
-    t.queuedReply = clean;
-    t.queuedReplyImages = imgs;
+    const msg = { role: 'user', text: clean, at: Date.now() };
+    if (atts.length) msg.attachments = atts;
+    t.thread.push(msg);
+    t.queuedReply = clean || '(see attached image)';
+    t.queuedAttachments = atts;
     t.status = 'queued';
     t.lastError = null;
     t.updatedAt = Date.now();
@@ -104,11 +107,15 @@ class Store extends EventEmitter {
     return this.tasks.find((t) => t.id === id);
   }
 
-  add({ title, prompt, cwd, model, images } = {}) {
+  add({ id, title, prompt, cwd, model, attachments } = {}) {
     const now = Date.now();
-    const imgs = Array.isArray(images) ? images : [];
+    const atts = (Array.isArray(attachments) ? attachments : [])
+      .filter((a) => a && a.path)
+      .map((a) => ({ path: a.path, name: a.name || '' }));
+    const firstMsg = { role: 'user', text: (prompt || '').trim(), at: now };
+    if (atts.length) firstMsg.attachments = atts;
     const task = {
-      id: uid(),
+      id: id || uid(),
       title: (title || '').trim() || (prompt || '').trim().slice(0, 48) || 'Untitled task',
       prompt: (prompt || '').trim(),
       cwd: cwd || '',
@@ -121,9 +128,8 @@ class Store extends EventEmitter {
       lastError: null,
       sessionId: null, // latest claude session, for --resume continuations
       queuedReply: null, // a chat reply waiting to be sent on the next run
-      queuedReplyImages: null, // images attached to that pending reply
-      images: imgs, // images attached to the initial prompt (shown on first run)
-      thread: [{ role: 'user', text: (prompt || '').trim(), at: now, images: imgs }], // chat history
+      attachments: atts, // images shown to Claude on the first run
+      thread: [firstMsg], // chat history
     };
     this.tasks.push(task);
     this._save();

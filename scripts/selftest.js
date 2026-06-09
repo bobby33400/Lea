@@ -1,7 +1,7 @@
 'use strict';
 /* Plain-node smoke tests for the pure logic (no electron, no token spend). */
 const assert = require('assert');
-const { buildSeatbeltProfile, buildCommand, DOCKER_WORKDIR } = require('../src/sandbox');
+const { buildSeatbeltProfile, buildCommand, chooseFallback, DOCKER_WORKDIR } = require('../src/sandbox');
 const { parseCcusageBlocks, classifyClaudeResult } = require('../src/classify');
 
 let n = 0;
@@ -58,6 +58,51 @@ const base = {
   const addIdx = cmd.args.lastIndexOf('--add-dir');
   assert.strictEqual(cmd.args[addIdx + 1], DOCKER_WORKDIR, '--add-dir uses container path');
   ok('docker backend mounts only the project dir and uses container paths');
+}
+
+// --- model switch: --fallback-model must never duplicate or escalate the model ---
+// Regression: the fallback is hardcoded to 'sonnet'. Fine for the default 'opus',
+// but switching the model in Settings to sonnet/haiku produced a broken argv
+// ('--model sonnet --fallback-model sonnet', which Claude rejects) or a silent
+// cost escalation ('--model haiku' overflowing to the pricier sonnet).
+{
+  const fbOf = (o) => {
+    const a = buildCommand(o).args;
+    const i = a.indexOf('--fallback-model');
+    return i === -1 ? null : a[i + 1];
+  };
+  assert.strictEqual(fbOf({ ...base, backend: 'none', model: 'opus', fallbackModel: 'sonnet' }), 'sonnet', 'opus keeps the sonnet fallback');
+  assert.strictEqual(fbOf({ ...base, backend: 'none', model: 'sonnet', fallbackModel: 'sonnet' }), null, 'sonnet drops the duplicate fallback');
+  assert.strictEqual(fbOf({ ...base, backend: 'none', model: 'haiku', fallbackModel: 'sonnet' }), null, 'haiku drops the escalating fallback');
+  // pure helper: unknown/custom model ids keep whatever was configured
+  assert.strictEqual(chooseFallback('opus', 'sonnet'), 'sonnet');
+  assert.strictEqual(chooseFallback('sonnet', 'sonnet'), null);
+  assert.strictEqual(chooseFallback('haiku', 'sonnet'), null);
+  assert.strictEqual(chooseFallback('claude-3-5-custom', 'sonnet'), 'sonnet', 'unknown primary keeps the configured fallback');
+  ok('fallback-model only applies as a genuine cheaper safety net below the chosen model');
+}
+
+// --- image attachments (docker mounts the attachment dir read-only) ---
+{
+  const cmd = buildCommand({
+    ...base,
+    backend: 'docker',
+    dockerImage: 'lea-claude:latest',
+    prompt: 'what is in this screenshot?\n\n[The user attached 1 image. ...]\n- /lea-attachments/a.png',
+    attachmentMounts: [{ hostDir: '/data/attachments/t1', containerDir: '/lea-attachments' }],
+  });
+  assert.ok(cmd.args.includes('/data/attachments/t1:/lea-attachments:ro'), 'mounts attachment dir read-only');
+  // both the project workdir and the attachment dir are exposed via --add-dir
+  const addDirs = cmd.args.filter((_, i) => cmd.args[i - 1] === '--add-dir');
+  assert.ok(addDirs.includes(DOCKER_WORKDIR) && addDirs.includes('/lea-attachments'), 'add-dir covers both');
+  ok('docker backend mounts image-attachment dirs read-only with container paths');
+}
+
+// --- no attachments → no extra mounts (default path unchanged) ---
+{
+  const cmd = buildCommand({ ...base, backend: 'docker', dockerImage: 'lea-claude:latest' });
+  assert.ok(!cmd.args.some((a) => String(a).includes(':ro')), 'no read-only mounts without attachments');
+  ok('docker backend adds no extra mounts when there are no attachments');
 }
 
 // --- seatbelt profile ---
@@ -165,6 +210,28 @@ const base = {
   ok('classify detects an auth/login failure as kind=auth');
 }
 
+// --- classify: transcript noise must NOT trigger limit/auth ---
+// A failed run whose stream-json transcript (assistant text / tool output)
+// merely mentions "401"/"rate limit" must stay kind=error, not be misread as an
+// expired login or usage cap (which would pause auto-run or loop forever).
+{
+  const stdout = [
+    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'I saw a 401 unauthorized and a rate limit in the logs.' }] } }),
+    JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: 'curl: server returned HTTP 429 Too Many Requests' }] } }),
+    JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'The test suite failed: 3 assertions did not pass.' }),
+  ].join('\n');
+  const r = classifyClaudeResult({ code: 0, stdout, stderr: '' });
+  assert.strictEqual(r.kind, 'error', 'transcript mentioning 401/rate-limit must not override the real error result');
+  // and a genuine cap (signalled in the result message itself) still classifies
+  const cap = classifyClaudeResult({
+    code: 0,
+    stdout: [stdout.split('\n')[0], JSON.stringify({ type: 'result', subtype: 'error', is_error: true, result: 'Claude AI usage limit reached. Resets at 3 PM.' })].join('\n'),
+    stderr: '',
+  });
+  assert.strictEqual(cap.kind, 'limited', 'a real limit in the result message still maps to limited');
+  ok('classify ignores 401/limit text in the transcript, trusts the result/stderr signal');
+}
+
 // --- precise reset window ---
 {
   const { earliestTimestampInRange, FIVE_HOURS_MS } = require('../src/window');
@@ -243,38 +310,6 @@ const base = {
   assert.deepStrictEqual(summarizeStreamEvent({ type: 'result' }), [], 'result event produces no progress line');
   assert.deepStrictEqual(summarizeStreamEvent({ type: 'system', subtype: 'init' }), []);
   ok('summarizeStreamEvent + describeTool produce readable progress lines');
-}
-
-// --- image attachments: copy into project, POSIX relative path, gitignore ---
-{
-  const fs = require('fs');
-  const os = require('os');
-  const path = require('path');
-  const { materializeAttachments, ATTACH_DIRNAME } = require('../src/attachments');
-
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lea-att-'));
-  const proj = path.join(tmp, 'proj');
-  fs.mkdirSync(proj);
-  const src = path.join(tmp, 'My Screenshot!.png');
-  fs.writeFileSync(src, 'PNGDATA');
-
-  // deterministic stamp/rand so the test doesn't depend on the clock
-  let i = 0;
-  const out = materializeAttachments(proj, [src, '/does/not/exist.png'], () => 1000 + i++, () => 7);
-
-  assert.strictEqual(out.length, 1, 'unreadable source is skipped, good one kept');
-  assert.strictEqual(out[0].name, 'My Screenshot!.png', 'keeps original display name');
-  assert.ok(out[0].rel.startsWith(ATTACH_DIRNAME + '/'), 'rel is project-relative');
-  assert.ok(!out[0].rel.includes('\\') && !out[0].rel.includes(' '), 'rel is POSIX + sanitized');
-  assert.ok(out[0].rel.endsWith('My_Screenshot_.png'), 'unsafe chars replaced in stored name');
-  assert.strictEqual(fs.readFileSync(out[0].abs, 'utf8'), 'PNGDATA', 'file actually copied');
-  assert.strictEqual(path.relative(proj, out[0].abs).replace(/\\/g, '/'), out[0].rel, 'abs matches rel under cwd');
-  assert.strictEqual(fs.readFileSync(path.join(proj, ATTACH_DIRNAME, '.gitignore'), 'utf8'), '*\n', 'auto-gitignored');
-  assert.deepStrictEqual(materializeAttachments('', [src]), [], 'no cwd => nothing');
-  assert.deepStrictEqual(materializeAttachments(proj, []), [], 'no images => nothing');
-
-  fs.rmSync(tmp, { recursive: true, force: true });
-  ok('materializeAttachments copies into .lea-attachments with a POSIX relative path');
 }
 
 console.log(`\nselftest OK — ${n} checks passed`);

@@ -131,10 +131,18 @@ function classifyClaudeResult(o) {
     return { kind: 'error', error: 'timeout', message: 'Task exceeded its time limit and was stopped.' };
   }
 
-  const text = `${stdout}\n${stderr}`;
-  const auth = AUTH_RE.test(text);
-  const limited = !auth && LIMIT_RE.test(text); // a 401 is auth, not a usage cap
   const parsed = tryParse(stdout) || lastJsonObject(stdout);
+
+  // Detect limit/auth from the actual failure signal — the result/error message
+  // plus claude's own stderr — NOT the whole stream-json transcript. stdout
+  // carries every assistant message and tool result, so scanning all of it makes
+  // a task whose output merely mentions "401" or "rate limit" (very common for
+  // web/API work) get misread as an expired login or usage cap. That would
+  // wrongly flip auto-run off or trap the task in an endless wait-for-reset retry
+  // loop. When there's no parseable result we fall back to stdout+stderr.
+  const signal = parsed && parsed.type === 'result' ? `${parsed.result || ''}\n${stderr}` : `${stdout}\n${stderr}`;
+  const auth = AUTH_RE.test(signal);
+  const limited = !auth && LIMIT_RE.test(signal); // a 401 is auth, not a usage cap
 
   if (parsed && parsed.type === 'result') {
     const isError = parsed.is_error === true || (parsed.subtype && parsed.subtype !== 'success');
