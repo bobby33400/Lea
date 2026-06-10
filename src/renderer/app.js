@@ -476,6 +476,7 @@ function addForm() {
   const model = el('select', 'in');
   [
     ['', 'default (' + (settings.model || 'opus') + ')'],
+    ['fable', 'fable'],
     ['opus', 'opus'],
     ['sonnet', 'sonnet'],
     ['haiku', 'haiku'],
@@ -720,7 +721,7 @@ function settingsForm() {
   ml.appendChild(el('div', 'desc', 'Used when you’re active (and a task has no model set)'));
   const sel = el('select', 'in');
   sel.style.width = '120px';
-  ['opus', 'sonnet', 'haiku'].forEach((m) => {
+  ['fable', 'opus', 'sonnet', 'haiku'].forEach((m) => {
     const o = el('option', null, m);
     o.value = m;
     if (settings.model === m) o.selected = true;
@@ -743,7 +744,7 @@ function settingsForm() {
   al.appendChild(el('div', 'desc', 'sonnet ≈ 5× cheaper than opus · haiku ≈ 15× (but weaker on code)'));
   const asel = el('select', 'in');
   asel.style.width = '120px';
-  ['sonnet', 'haiku', 'opus'].forEach((m) => {
+  ['sonnet', 'haiku', 'opus', 'fable'].forEach((m) => {
     const o = el('option', null, m);
     o.value = m;
     if ((settings.awayModel || 'sonnet') === m) o.selected = true;

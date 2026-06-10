@@ -74,8 +74,11 @@ const base = {
   assert.strictEqual(fbOf({ ...base, backend: 'none', model: 'opus', fallbackModel: 'sonnet' }), 'sonnet', 'opus keeps the sonnet fallback');
   assert.strictEqual(fbOf({ ...base, backend: 'none', model: 'sonnet', fallbackModel: 'sonnet' }), null, 'sonnet drops the duplicate fallback');
   assert.strictEqual(fbOf({ ...base, backend: 'none', model: 'haiku', fallbackModel: 'sonnet' }), null, 'haiku drops the escalating fallback');
+  assert.strictEqual(fbOf({ ...base, backend: 'none', model: 'fable', fallbackModel: 'sonnet' }), 'sonnet', 'fable keeps the sonnet fallback');
   // pure helper: unknown/custom model ids keep whatever was configured
   assert.strictEqual(chooseFallback('opus', 'sonnet'), 'sonnet');
+  assert.strictEqual(chooseFallback('fable', 'opus'), 'opus', 'opus is a valid fallback beneath fable');
+  assert.strictEqual(chooseFallback('opus', 'fable'), null, 'fable fallback above opus is an escalation');
   assert.strictEqual(chooseFallback('sonnet', 'sonnet'), null);
   assert.strictEqual(chooseFallback('haiku', 'sonnet'), null);
   assert.strictEqual(chooseFallback('claude-3-5-custom', 'sonnet'), 'sonnet', 'unknown primary keeps the configured fallback');

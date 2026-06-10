@@ -19,7 +19,7 @@ const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 const DOCKER_WORKDIR = '/workspace'; // where the project is mounted inside the container
 
 // Model tiers, ranked by capability/cost (higher = more capable & pricier).
-const MODEL_RANK = { haiku: 1, sonnet: 2, opus: 3 };
+const MODEL_RANK = { haiku: 1, sonnet: 2, opus: 3, fable: 4 };
 
 /**
  * Decide the --fallback-model to actually pass for a given primary model.
