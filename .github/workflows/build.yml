@@ -5,6 +5,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -30,8 +33,12 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
-      # Build native, per-OS installers (no cross-compilation).
-      - run: npx electron-builder --publish never
+      # Build native, per-OS installers and attach them to a draft GitHub Release
+      # (electron-builder defaults the release to draft, so it stays private until
+      # you publish it). The artifact upload below is a redundant fallback.
+      - run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: lea-${{ matrix.os }}
