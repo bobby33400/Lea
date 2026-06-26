@@ -13,7 +13,13 @@ wake up to it done.
 ![platforms](https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-informational)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
+### ⬇️ [Download for macOS · Windows · Linux](https://github.com/bobby33400/Lea/releases/latest)
+
 </div>
+
+<!-- TODO: a screenshot or GIF of the tray menu goes a long way on Show HN / Product Hunt.
+     Save one as docs/screenshot.png and uncomment the next line:
+<p align="center"><img src="docs/screenshot.png" alt="Lea tray menu" width="520"></p> -->
 
 ```
         ┌──────────────┐   reads    ┌───────────────────────────┐
@@ -29,6 +35,16 @@ wake up to it done.
         │ (a project)  │                                  │  ◷ 2:14 · 3 │
         └──────────────┘                                  └─────────────┘
 ```
+
+## Download
+
+**[→ Grab the latest installer from Releases](https://github.com/bobby33400/Lea/releases/latest)** — `.dmg`/`.zip` (macOS), `.exe` (Windows), `.AppImage` (Linux).
+
+> The installers are **not code-signed yet**, so your OS warns you the first time:
+> - **macOS:** right-click the app → **Open** → **Open** (or System Settings → Privacy & Security → *Open Anyway*).
+> - **Windows:** SmartScreen → **More info** → **Run anyway**.
+>
+> Prefer to build it yourself? See [Install & run (from source)](#install--run-from-source).
 
 ## What it does
 
@@ -64,9 +80,9 @@ A small ring icon appears in your menu bar / tray. On macOS it shows a live
 countdown like **`◷ 2:14 · 3`** (2h14m to reset, 3 queued); on Windows/Linux the
 countdown is in the tooltip. Click it to add and manage tasks.
 
-> **Prebuilt installers:** push a `v*` tag (or run the **build** workflow) and
-> GitHub Actions produces a `.dmg`/`.zip` (macOS), `.exe` (Windows), and
-> `.AppImage` (Linux). Or build locally with `npm run dist`.
+> **Prebuilt installers** are published to [Releases](https://github.com/bobby33400/Lea/releases)
+> on every `v*` tag (built by GitHub Actions for all three platforms). Or build
+> locally with `npm run dist`.
 
 ## How the autonomous loop works
 
