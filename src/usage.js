@@ -64,14 +64,15 @@ class UsageMonitor extends EventEmitter {
 
   // Replace ccusage's floored block bounds with the precise window derived from
   // the real first-message timestamp. Cached per block so we scan transcripts
-  // at most once per 5-hour window.
+  // at most once per 5-hour window — but ONLY when the scan succeeds (precise).
+  // If the scan fails we leave the cache unset so the next poll retries.
   _refineReset(snap) {
     if (!snap.active || !snap.startAt || !snap.resetAt) return;
     const key = snap.startAt; // floored block start is a stable id
-    if (this._wKey === key && this._wReset) {
+    if (this._wKey === key && this._wPrecise) {
       snap.startAt = this._wStart;
       snap.resetAt = this._wReset;
-      snap.preciseReset = this._wPrecise;
+      snap.preciseReset = true;
       return;
     }
     try {
@@ -79,10 +80,12 @@ class UsageMonitor extends EventEmitter {
       snap.startAt = w.startAt;
       snap.resetAt = w.resetAt;
       snap.preciseReset = w.precise;
-      this._wKey = key;
-      this._wStart = w.startAt;
-      this._wReset = w.resetAt;
-      this._wPrecise = w.precise;
+      if (w.precise) {
+        this._wKey = key;
+        this._wStart = w.startAt;
+        this._wReset = w.resetAt;
+        this._wPrecise = true;
+      }
     } catch {
       /* keep ccusage's values on any error */
     }
