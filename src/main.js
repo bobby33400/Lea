@@ -22,11 +22,11 @@ function init() {
 
   const config = require('./config');
   config.loadSettings();
+  const appshell = require('./appshell');
   const { ensureTrayIcon } = require('./icon');
   const { Store } = require('./store');
   const { UsageMonitor } = require('./usage');
   const { Runner } = require('./runner');
-  const { menubar } = require('menubar');
 
   const iconPath = ensureTrayIcon(config.ASSETS_DIR);
 
@@ -44,15 +44,15 @@ function init() {
     },
   });
 
-  mb = menubar({
+  // macOS → menu-bar popover; Windows/Linux → a real windowed app + tray.
+  mb = appshell.create({
     index: 'file://' + path.join(__dirname, 'renderer', 'index.html'),
     icon: iconPath,
     tooltip: 'Lea',
-    showDockIcon: false,
     browserWindow: {
-      width: 404,
-      height: 648,
-      resizable: false,
+      width: 420,
+      height: 680,
+      resizable: !IS_MAC, // fixed popover on mac; a normal resizable window elsewhere
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'),
         contextIsolation: true,
@@ -62,11 +62,15 @@ function init() {
   });
 
   mb.on('ready', () => {
-    try {
-      const img = nativeImage.createFromPath(iconPath);
-      img.setTemplateImage(true);
-      mb.tray.setImage(img);
-    } catch {}
+    // The menu-bar (mac) icon is a monochrome template; the Windows/Linux tray
+    // icon is set in appshell and must stay colored, so only templatize on mac.
+    if (IS_MAC) {
+      try {
+        const img = nativeImage.createFromPath(iconPath);
+        img.setTemplateImage(true);
+        mb.tray.setImage(img);
+      } catch {}
+    }
     mb.tray.setToolTip('Lea');
 
     wireIpc(config);
@@ -79,6 +83,7 @@ function init() {
   });
 
   app.on('before-quit', () => {
+    app.isQuitting = true; // let the windowed shell's close handler exit for real
     try {
       usage.stop();
     } catch {}
@@ -130,8 +135,11 @@ function notifyFinished(info) {
     let title;
     let body;
     if (info.status === 'auth') {
-      title = '🔑 Sign in to Claude again';
-      body = 'Lea paused — your Claude login expired. Run `claude`, then /login, and turn auto-run back on.';
+      const isCodex = info.provider === 'codex';
+      title = isCodex ? '🔑 Sign in to Codex again' : '🔑 Sign in to Claude again';
+      body = isCodex
+        ? 'Lea paused — your Codex sign-in expired. Run `codex login` (or set an API key), then turn auto-run back on.'
+        : 'Lea paused — your Claude login expired. Run `claude`, then /login, and turn auto-run back on.';
     } else if (info.status === 'done') {
       const n = (info.followups || []).length;
       title = '✅ ' + info.title;
@@ -249,6 +257,26 @@ function readLatestLog(id) {
 }
 
 function wireIpc(config) {
+  const providers = require('./providers');
+  // Metadata + live install/auth status for each agent, for onboarding + settings.
+  ipcMain.handle('providers:info', () => ({
+    active: config.get('provider') || providers.DEFAULT_ID,
+    list: providers.list().map((p) => ({
+      id: p.id,
+      label: p.label,
+      blurb: p.blurb,
+      models: p.models,
+      defaultModel: p.defaultModel,
+      modelKey: p.modelKey,
+      awayModelKey: p.awayModelKey,
+      authModes: p.authModes,
+      authModeKey: p.authModeKey,
+      installed: config.agentBinInstalled(p.id),
+      authMode: config.get(p.authModeKey) || (p.authModes[0] && p.authModes[0].value),
+      authStatus: p.authStatus(config),
+    })),
+  }));
+
   ipcMain.handle('usage:get', () => usage.snapshot);
   ipcMain.handle('runner:state', () => runner.state());
   ipcMain.handle('tasks:list', () => store.list());

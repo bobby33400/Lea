@@ -19,7 +19,7 @@ const { EventEmitter } = require('events');
 const config = require('./config');
 const { LOGS_DIR, SB_DIR, DATA_DIR, IS_WIN } = config;
 const { buildSeatbeltProfile, buildCommand } = require('./sandbox');
-const { classifyClaudeResult, summarizeStreamEvent } = require('./classify');
+const providers = require('./providers');
 const report = require('./report');
 
 function realpath(p) {
@@ -102,11 +102,18 @@ class Runner extends EventEmitter {
     }
   }
 
-  // Explicit per-task model wins; otherwise cheap "away" model if idle, else default.
-  _modelFor(task) {
+  // The agent a task runs on: its own choice, else the global default.
+  _providerFor(task) {
+    return providers.get((task && task.provider) || config.get('provider') || providers.DEFAULT_ID);
+  }
+
+  // Explicit per-task model wins; otherwise cheap "away" model if idle, else the
+  // provider's configured default. Empty string = let the agent pick its default.
+  _modelFor(task, provider) {
     if (task.model) return task.model;
-    if (this._isAway()) return config.get('awayModel') || 'sonnet';
-    return config.get('model');
+    provider = provider || this._providerFor(task);
+    if (this._isAway()) return config.get(provider.awayModelKey) || config.get(provider.modelKey) || provider.defaultModel || '';
+    return config.get(provider.modelKey) || provider.defaultModel || '';
   }
 
   _emitState() {
@@ -212,17 +219,19 @@ class Runner extends EventEmitter {
     this.store.update(task.id, { status: 'running', currentLogFile: logFile });
     this._emitState();
 
-    const model = this._modelFor(task); // cheap "away" model if idle, else your default
-    // A queued chat reply continues the existing claude session via --resume.
+    const provider = this._providerFor(task);
+    const model = this._modelFor(task, provider); // cheap "away" model if idle, else your default
+    // A queued chat reply continues the existing agent session (claude --resume /
+    // codex exec resume).
     const isReply = !!(task.queuedReply && task.sessionId);
     const prompt = isReply ? task.queuedReply : task.prompt;
     const resumeId = isReply ? task.sessionId : null;
     const attachments = (isReply ? task.queuedAttachments : task.attachments) || [];
-    const reportCtx = report.start(task, model, prompt); // create Lea_Reports/<file>.md + snapshot
+    const reportCtx = report.start(task, model || provider.label, prompt); // create Lea_Reports/<file>.md + snapshot
 
     let result;
     try {
-      result = await this._exec(task, logFile, model, { prompt, resumeId, attachments });
+      result = await this._exec(task, logFile, model, { prompt, resumeId, attachments, provider });
     } catch (e) {
       result = { kind: 'error', error: 'spawn', message: String((e && e.message) || e) };
     }
@@ -252,19 +261,28 @@ class Runner extends EventEmitter {
         text: strip(result.result) || '(done)',
         at: Date.now(),
         cost: result.costUSD,
-        model,
+        model: model || provider.label,
       });
       finished = { id: task.id, title: task.title, status: 'done', followups: result.followups || [] };
     } else if (result.kind === 'limited') {
       this.store.update(task.id, { status: 'queued' }); // keep queuedReply so the reply retries after reset
-      const resetAt = (this.usage.snapshot && this.usage.snapshot.resetAt) || Date.now() + 30 * 60 * 1000;
-      this._setWait(resetAt, 'usage limit — waiting for reset');
+      // Claude gets a precise reset time from ccusage; Codex has none, so we fall
+      // back to a fixed retry (or a "try again in N" hint parsed from the error).
+      let resetAt;
+      if (result.retryAfterMs) resetAt = Date.now() + result.retryAfterMs;
+      else if (provider.usesCcusage && this.usage.snapshot && this.usage.snapshot.resetAt) resetAt = this.usage.snapshot.resetAt;
+      else resetAt = Date.now() + (provider.usesCcusage ? 30 : config.get('codexRetryMinutes') || 20) * 60 * 1000;
+      this._setWait(resetAt, provider.usesCcusage ? 'usage limit — waiting for reset' : 'rate limit — waiting to retry');
     } else if (result.kind === 'auth') {
       // Login expired — retrying won't help and would burn tokens. Keep the task
       // queued, pause auto-run, and tell the user to sign in again.
-      this.store.update(task.id, { status: 'queued', lastError: 'Claude login expired — sign in again (run `claude`, then /login), then re-enable auto-run.' });
+      const hint =
+        provider.id === 'codex'
+          ? 'Codex sign-in expired — run `codex login` (or set an API key in Settings), then re-enable auto-run.'
+          : 'Claude login expired — sign in again (run `claude`, then /login), then re-enable auto-run.';
+      this.store.update(task.id, { status: 'queued', lastError: hint });
       config.setSettings({ autoRun: false });
-      finished = { id: task.id, title: task.title, status: 'auth', needsLogin: true, followups: [] };
+      finished = { id: task.id, title: task.title, status: 'auth', needsLogin: true, provider: provider.id, followups: [] };
     } else {
       const attempts = (task.attempts || 0) + 1;
       const max = config.get('maxRetries') || 0;
@@ -319,9 +337,13 @@ class Runner extends EventEmitter {
 
   _exec(task, logFile, model, runOpts) {
     return new Promise((resolve) => {
+      const provider = (runOpts && runOpts.provider) || providers.get(config.get('provider'));
       const backend = config.effectiveBackend();
+      // Codex sandboxes itself, so it isn't wrapped in sandbox-exec — only claude
+      // (and other non-self-sandboxed agents) need the Seatbelt profile written.
+      const needsSeatbelt = backend === 'seatbelt' && !provider.selfSandboxed;
       const sbFile = path.join(SB_DIR, `${task.id}.sb`);
-      if (backend === 'seatbelt') {
+      if (needsSeatbelt) {
         const prof = buildSeatbeltProfile({
           home: os.homedir(),
           cwd: realpath(task.cwd),
@@ -334,47 +356,62 @@ class Runner extends EventEmitter {
       }
 
       const containerName = backend === 'docker' ? `lea-${task.id}` : null;
-      const token = backend === 'docker' ? config.get('claudeOAuthToken') || '' : '';
 
-      // Image attachments: make them readable from inside the sandbox/container,
-      // and reference their in-sandbox paths from the prompt.
+      // Image attachments: make them readable from inside the sandbox/container.
+      // Claude is told the paths in the prompt text; Codex takes them via `-i`.
       const attachments = (runOpts && runOpts.attachments) || [];
       const addDirs = [task.cwd];
       let attachmentMounts = [];
+      let attachmentPaths = [];
       let prompt = (runOpts && runOpts.prompt) || task.prompt;
       if (attachments.length) {
         const hostDir = path.dirname(attachments[0].path);
         if (backend === 'docker') {
           const CONTAINER_ATTACH = '/lea-attachments';
           attachmentMounts = [{ hostDir, containerDir: CONTAINER_ATTACH }];
-          prompt = withImageRefs(prompt, attachments.map((a) => CONTAINER_ATTACH + '/' + path.basename(a.path)));
+          attachmentPaths = attachments.map((a) => CONTAINER_ATTACH + '/' + path.basename(a.path));
         } else {
           // seatbelt allows reads everywhere; 'none' is unrestricted. Add the dir
           // so the file is in-workspace regardless of permission mode.
           addDirs.push(hostDir);
-          prompt = withImageRefs(prompt, attachments.map((a) => a.path));
+          attachmentPaths = attachments.map((a) => a.path);
+        }
+        if (provider.imageMode === 'prompt') {
+          prompt = withImageRefs(prompt, attachmentPaths);
+          attachmentPaths = []; // referenced from the prompt instead of via flags
         }
       }
 
+      // Fold the "what the human must still do" ask in the provider's native way
+      // (claude: --append-system-prompt; codex: appended to the prompt).
+      const inj = provider.injectFollowups(prompt, FOLLOWUP_INSTRUCTION);
+      prompt = inj.prompt;
+
+      const agentEnvAdds = provider.env(config, { backend });
+      const agentBin = provider.resolveBin(config);
+
       const { bin, args } = buildCommand({
+        agent: provider.id,
         backend,
-        claudeBin: config.resolveClaudeBin(),
+        agentBin,
+        claudeBin: agentBin, // back-compat field name used by the claude path
         prompt,
         cwd: realpath(task.cwd),
-        model: model || task.model || config.get('model'),
+        model: model || task.model || config.get(provider.modelKey) || provider.defaultModel,
         fallbackModel: config.get('fallbackModel'),
         permissionMode: config.get('permissionMode') || 'bypassPermissions',
-        appendSystemPrompt: FOLLOWUP_INSTRUCTION,
+        appendSystemPrompt: inj.appendSystemPrompt,
         addDirs,
         attachmentMounts,
+        attachmentPaths,
         sbFile,
-        dockerImage: config.get('dockerImage'),
+        dockerImage: provider.id === 'codex' ? config.get('codexDockerImage') : config.get('dockerImage'),
         containerName,
-        dockerToken: !!(backend === 'docker' && token),
+        dockerEnvPass: backend === 'docker' ? Object.keys(agentEnvAdds) : [],
         resumeSessionId: runOpts && runOpts.resumeId,
       });
 
-      const env = config.childEnv(backend === 'docker' && token ? { CLAUDE_CODE_OAUTH_TOKEN: token } : null);
+      const env = config.childEnv(agentEnvAdds);
 
       const log = fs.createWriteStream(logFile, { flags: 'a' });
       log.write(
@@ -383,6 +420,7 @@ class Runner extends EventEmitter {
           `# task:    ${task.title}`,
           `# cwd:     ${task.cwd}`,
           `# when:    ${new Date().toISOString()}`,
+          `# agent:   ${provider.id}`,
           `# backend: ${backend}`,
           `# cmd:     ${bin} ${args.map((a) => (a.includes(' ') ? JSON.stringify(a) : a)).join(' ')}`,
           '',
@@ -422,8 +460,7 @@ class Runner extends EventEmitter {
         } catch {
           return;
         }
-        if (o.type === 'result') return; // final result handled on close
-        const parts = summarizeStreamEvent(o);
+        const parts = provider.parseStreamEvent(o); // [] for terminal/noise events
         for (const p of parts) log.write(p + '\n');
         if (parts.length) this.emit('activity', { id: task.id, text: parts[parts.length - 1] });
       };
@@ -452,7 +489,7 @@ class Runner extends EventEmitter {
       child.on('close', (code) => {
         clearTimeout(killTimer);
         if (lineBuf.trim()) handleLine(lineBuf);
-        const res = classifyClaudeResult({ code, stdout, stderr, timedOut });
+        const res = provider.classifyResult({ code, stdout, stderr, timedOut });
         log.write(`\n# result: ${res.kind}${res.message ? ' — ' + res.message : ''}\n`);
         log.end();
         resolve(res);

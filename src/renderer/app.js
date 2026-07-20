@@ -12,6 +12,7 @@ let usage = { active: false, resetAt: null, startAt: null, totalTokens: 0, costU
 let runnerState = { busy: false, waitUntil: null, waitReason: null, autoRun: true, phase: 'idle' };
 let tasks = [];
 let settings = {};
+let providerInfo = { active: 'claude', list: [] }; // agents + install/auth status
 let doneCollapsed = false;
 let liveActivity = {}; // taskId -> [recent short activity lines]
 let logTimer = null; // refresh timer while a log panel is open
@@ -141,6 +142,7 @@ function taskRow(t) {
   const meta = el('div', 'task-meta');
   meta.appendChild(el('span', 'badge ' + t.status, t.status));
   meta.appendChild(el('span', 'muted small', '📁 ' + (basename(t.cwd) || 'no folder')));
+  if (t.provider) meta.appendChild(el('span', 'muted small', '· ' + providerLabel(t.provider)));
   if (t.model) meta.appendChild(el('span', 'muted small', '· ' + t.model));
   if (t.attempts) meta.appendChild(el('span', 'muted small', '· try ' + t.attempts));
   const lastRun = t.runs && t.runs.length ? t.runs[t.runs.length - 1] : null;
@@ -197,7 +199,7 @@ function renderTasks() {
 
   if (active.length === 0 && done.length === 0) {
     list.appendChild(
-      el('div', 'empty', 'No tasks yet.\nClick ＋ Task to queue work for Claude to run automatically when your tokens reset.')
+      el('div', 'empty', 'No tasks yet.\nClick ＋ Task to queue work for your agent to run automatically when your limit resets.')
     );
     return;
   }
@@ -443,7 +445,7 @@ function addForm() {
   title.placeholder = 'e.g. Fix failing tests';
   wrap.appendChild(title);
 
-  wrap.appendChild(el('div', 'lbl', 'Instructions for Claude'));
+  wrap.appendChild(el('div', 'lbl', 'Instructions for the agent'));
   const prompt = el('textarea', 'in');
   prompt.placeholder = 'e.g. Run the test suite, fix any failing tests, then commit the changes with a clear message.';
   prompt.rows = 5;
@@ -472,19 +474,31 @@ function addForm() {
   wrap.appendChild(folderBtn);
   wrap.appendChild(folderLbl);
 
+  wrap.appendChild(el('div', 'lbl', 'Agent'));
+  const agentSel = el('select', 'in');
+  for (const p of providerInfo.list) {
+    const o = el('option', null, p.label + (p.installed ? '' : ' — CLI not found'));
+    o.value = p.id;
+    if ((settings.provider || providerInfo.active) === p.id) o.selected = true;
+    agentSel.appendChild(o);
+  }
+  wrap.appendChild(agentSel);
+
   wrap.appendChild(el('div', 'lbl', 'Model'));
   const model = el('select', 'in');
-  [
-    ['', 'default (' + (settings.model || 'opus') + ')'],
-    ['fable', 'fable'],
-    ['opus', 'opus'],
-    ['sonnet', 'sonnet'],
-    ['haiku', 'haiku'],
-  ].forEach(([v, l]) => {
-    const o = el('option', null, l);
-    o.value = v;
-    model.appendChild(o);
-  });
+  const fillModels = () => {
+    model.innerHTML = '';
+    const p = providerById(agentSel.value) || providerInfo.list[0];
+    const def = p ? settings[p.modelKey] || p.defaultModel : '';
+    const defLabel = 'default' + (def ? ' (' + def + ')' : p && p.id === 'codex' ? ' (codex)' : '');
+    for (const [v, l] of [['', defLabel], ...((p && p.models) || []).map((m) => [m, m])]) {
+      const o = el('option', null, l);
+      o.value = v;
+      model.appendChild(o);
+    }
+  };
+  fillModels();
+  agentSel.onchange = fillModels;
   wrap.appendChild(model);
 
   const actions = el('div', 'row end gap');
@@ -495,7 +509,14 @@ function addForm() {
   save.onclick = async () => {
     if (!prompt.value.trim()) return prompt.focus();
     if (!chosen) return toast('Pick a project folder first');
-    await window.api.tasksAdd({ title: title.value, prompt: prompt.value, cwd: chosen, model: model.value, attachments: att.payload() });
+    await window.api.tasksAdd({
+      title: title.value,
+      prompt: prompt.value,
+      cwd: chosen,
+      provider: agentSel.value,
+      model: model.value,
+      attachments: att.payload(),
+    });
     closeOverlay();
   };
   actions.appendChild(cancel);
@@ -535,6 +556,215 @@ async function showLog(t) {
     }
     load();
   }, 1500);
+}
+
+/* ---- agents (providers) ---- */
+
+// A sign-in card for one agent whose choices are held in `st` (saved on submit).
+// Used by the first-run onboarding flow.
+function agentAuthCard(p, st) {
+  const card = el('div', 'agent-card');
+  const head = el('div', 'row between');
+  const name = el('div', 'agent-name');
+  name.appendChild(el('span', 'agent-dot ' + p.id));
+  name.appendChild(el('span', null, p.label));
+  head.appendChild(name);
+  head.appendChild(el('span', 'agent-badge ' + (p.installed ? 'ok' : 'warn'), p.installed ? 'CLI found' : 'CLI not found'));
+  card.appendChild(head);
+  card.appendChild(el('div', 'desc', p.blurb));
+
+  card.appendChild(el('div', 'lbl', 'Sign-in'));
+  const authSel = el('select', 'in');
+  for (const m of p.authModes) {
+    const o = el('option', null, m.label);
+    o.value = m.value;
+    if (st.authMode === m.value) o.selected = true;
+    authSel.appendChild(o);
+  }
+  card.appendChild(authSel);
+
+  const keyWrap = el('div');
+  card.appendChild(keyWrap);
+  const renderKey = () => {
+    keyWrap.innerHTML = '';
+    const mode = p.authModes.find((m) => m.value === st.authMode);
+    if (mode && mode.needsKey) {
+      const inp = el('input', 'in');
+      inp.type = 'password';
+      inp.placeholder = mode.keySetting;
+      inp.value = st.key || '';
+      inp.oninput = () => (st.key = inp.value);
+      keyWrap.appendChild(el('div', 'lbl', 'API key'));
+      keyWrap.appendChild(inp);
+      keyWrap.appendChild(el('div', 'desc', 'Stored locally on this machine.'));
+    } else {
+      const hint =
+        p.id === 'codex'
+          ? 'Sign in once in a terminal: run `codex login` (ChatGPT), then you’re set.'
+          : 'Sign in once in a terminal: run `claude`, then `/login`, then you’re set.';
+      keyWrap.appendChild(el('div', 'desc', hint));
+    }
+  };
+  authSel.onchange = () => {
+    st.authMode = authSel.value;
+    renderKey();
+  };
+  renderKey();
+  return card;
+}
+
+// First-run: choose the default agent and sign in to Claude and/or Codex.
+function openOnboarding() {
+  const list = providerInfo.list || [];
+  if (!list.length) return; // providers not loaded yet
+  const wrap = el('div', 'form onboarding');
+  wrap.appendChild(el('h3', null, '👋 Welcome to Lea'));
+  wrap.appendChild(
+    el(
+      'div',
+      'intro',
+      'Lea runs your queued tasks automatically with a coding agent. Choose which agent to use — Claude Code, Codex, or both — and how to sign in. You can change all of this later in Settings.'
+    )
+  );
+
+  const state = {};
+  const cards = el('div', 'agent-cards');
+  for (const p of list) {
+    state[p.id] = { authMode: p.authMode || (p.authModes[0] && p.authModes[0].value) || 'cli', key: '' };
+    cards.appendChild(agentAuthCard(p, state[p.id]));
+  }
+  wrap.appendChild(cards);
+
+  wrap.appendChild(el('div', 'lbl', 'Default agent for new tasks'));
+  const defSel = el('select', 'in');
+  for (const p of list) {
+    const o = el('option', null, p.label);
+    o.value = p.id;
+    if ((settings.provider || providerInfo.active) === p.id) o.selected = true;
+    defSel.appendChild(o);
+  }
+  wrap.appendChild(defSel);
+  wrap.appendChild(el('div', 'desc', 'Every task can override this and pick a specific agent.'));
+
+  const actions = el('div', 'row end gap');
+  actions.style.marginTop = '14px';
+  const skip = el('button', 'btn', 'Skip for now');
+  skip.onclick = async () => {
+    settings = await window.api.settingsSet({ onboarded: true });
+    closeOverlay();
+  };
+  const go = el('button', 'btn primary', 'Get started');
+  go.onclick = async () => {
+    const patch = { provider: defSel.value, onboarded: true };
+    for (const p of list) {
+      const st = state[p.id];
+      patch[p.authModeKey] = st.authMode;
+      const mode = p.authModes.find((m) => m.value === st.authMode);
+      if (mode && mode.needsKey && st.key) patch[mode.keySetting] = st.key;
+    }
+    settings = await window.api.settingsSet(patch);
+    providerInfo = await window.api.providersInfo();
+    closeOverlay();
+    toast('Ready — click ＋ Task to queue your first job.');
+  };
+  actions.appendChild(skip);
+  actions.appendChild(go);
+  wrap.appendChild(actions);
+
+  openOverlay(wrap);
+}
+
+// Live-persisting agent config used inside the Settings panel.
+function renderProviderConfigInto(container, p) {
+  container.innerHTML = '';
+  const head = el('div', 'row between');
+  const name = el('div', 'agent-name');
+  name.appendChild(el('span', 'agent-dot ' + p.id));
+  name.appendChild(el('span', null, p.label));
+  head.appendChild(name);
+  head.appendChild(el('span', 'agent-badge ' + (p.installed ? 'ok' : 'warn'), p.installed ? 'CLI found' : 'CLI not found'));
+  container.appendChild(head);
+
+  // sign-in method
+  const authRow = el('div', 'setting');
+  const al = el('div');
+  al.appendChild(el('label', null, 'Sign-in'));
+  al.appendChild(el('div', 'desc', p.id === 'codex' ? '`codex login` or an API key' : '`claude /login` or an API key'));
+  const authSel = el('select', 'in');
+  authSel.style.width = '190px';
+  for (const m of p.authModes) {
+    const o = el('option', null, m.label);
+    o.value = m.value;
+    if ((settings[p.authModeKey] || p.authMode) === m.value) o.selected = true;
+    authSel.appendChild(o);
+  }
+  authRow.appendChild(al);
+  authRow.appendChild(authSel);
+  container.appendChild(authRow);
+
+  const keyBox = el('div');
+  container.appendChild(keyBox);
+  const renderKey = () => {
+    keyBox.innerHTML = '';
+    const mode = p.authModes.find((m) => m.value === (settings[p.authModeKey] || authSel.value));
+    if (!mode || !mode.needsKey) return;
+    const r = el('div', 'setting');
+    const l = el('div');
+    l.appendChild(el('label', null, 'API key'));
+    l.appendChild(el('div', 'desc', 'Stored locally'));
+    const inp = el('input', 'in');
+    inp.type = 'password';
+    inp.style.width = '190px';
+    inp.placeholder = mode.keySetting;
+    inp.value = settings[mode.keySetting] || '';
+    inp.onchange = async () => {
+      settings = await window.api.settingsSet({ [mode.keySetting]: inp.value });
+    };
+    r.appendChild(l);
+    r.appendChild(inp);
+    keyBox.appendChild(r);
+  };
+  authSel.onchange = async () => {
+    settings = await window.api.settingsSet({ [p.authModeKey]: authSel.value });
+    renderKey();
+  };
+  renderKey();
+
+  // model when here + away model
+  const mkModel = (key, label, desc) => {
+    const row = el('div', 'setting');
+    const l = el('div');
+    l.appendChild(el('label', null, label));
+    l.appendChild(el('div', 'desc', desc));
+    const sel = el('select', 'in');
+    sel.style.width = '150px';
+    const opts = [['', p.id === 'codex' ? '(codex default)' : '(default)'], ...p.models.map((m) => [m, m])];
+    const cur = settings[key] == null ? '' : settings[key];
+    let matched = false;
+    for (const [v, lab] of opts) {
+      const o = el('option', null, lab);
+      o.value = v;
+      if (v === cur) {
+        o.selected = true;
+        matched = true;
+      }
+      sel.appendChild(o);
+    }
+    if (!matched && cur) {
+      const o = el('option', null, cur);
+      o.value = cur;
+      o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.onchange = async () => {
+      settings = await window.api.settingsSet({ [key]: sel.value });
+    };
+    row.appendChild(l);
+    row.appendChild(sel);
+    return row;
+  };
+  container.appendChild(mkModel(p.modelKey, 'Model when you’re here', 'Used when you’re active'));
+  container.appendChild(mkModel(p.awayModelKey, 'Away model', 'Cheaper model while you’re idle/asleep'));
 }
 
 function settingsForm() {
@@ -591,6 +821,33 @@ function settingsForm() {
   };
 
   wrap.appendChild(toggle('autoRun', 'Auto-run', 'Run queued tasks automatically'));
+
+  // ---- Agents & sign-in ----
+  wrap.appendChild(el('div', 'lbl', 'Agents & sign-in'));
+  const defRow = el('div', 'setting');
+  const dl = el('div');
+  dl.appendChild(el('label', null, 'Default agent'));
+  dl.appendChild(el('div', 'desc', 'Runs new tasks unless a task picks another'));
+  const defSel = el('select', 'in');
+  defSel.style.width = '150px';
+  for (const p of providerInfo.list) {
+    const o = el('option', null, p.label);
+    o.value = p.id;
+    if ((settings.provider || providerInfo.active) === p.id) o.selected = true;
+    defSel.appendChild(o);
+  }
+  defSel.onchange = async () => {
+    settings = await window.api.settingsSet({ provider: defSel.value });
+  };
+  defRow.appendChild(dl);
+  defRow.appendChild(defSel);
+  wrap.appendChild(defRow);
+
+  for (const p of providerInfo.list) {
+    const box = el('div', 'agent-config');
+    renderProviderConfigInto(box, p);
+    wrap.appendChild(box);
+  }
 
   const plat = window.api.platform;
   wrap.appendChild(el('div', 'lbl', 'Sandbox / isolation'));
@@ -714,48 +971,10 @@ function settingsForm() {
   qh.appendChild(times);
   wrap.appendChild(qh);
 
-  // default model
-  const modelRow = el('div', 'setting');
-  const ml = el('div');
-  ml.appendChild(el('label', null, 'Model when you’re here'));
-  ml.appendChild(el('div', 'desc', 'Used when you’re active (and a task has no model set)'));
-  const sel = el('select', 'in');
-  sel.style.width = '120px';
-  ['fable', 'opus', 'sonnet', 'haiku'].forEach((m) => {
-    const o = el('option', null, m);
-    o.value = m;
-    if (settings.model === m) o.selected = true;
-    sel.appendChild(o);
-  });
-  sel.onchange = async () => {
-    settings = await window.api.settingsSet({ model: sel.value });
-  };
-  modelRow.appendChild(ml);
-  modelRow.appendChild(sel);
-  wrap.appendChild(modelRow);
-
-  // efficient "away" mode
+  // Efficient "away" mode. Each agent's here/away models live in Agents & sign-in.
   wrap.appendChild(
-    toggle('efficientWhenAway', 'Efficient mode when away', 'Run on a cheaper model while you’re idle/asleep')
+    toggle('efficientWhenAway', 'Efficient mode when away', 'Use each agent’s cheaper “away” model while you’re idle/asleep')
   );
-  const awayRow = el('div', 'setting');
-  const al = el('div');
-  al.appendChild(el('label', null, 'Away model'));
-  al.appendChild(el('div', 'desc', 'sonnet ≈ 5× cheaper than opus · haiku ≈ 15× (but weaker on code)'));
-  const asel = el('select', 'in');
-  asel.style.width = '120px';
-  ['sonnet', 'haiku', 'opus', 'fable'].forEach((m) => {
-    const o = el('option', null, m);
-    o.value = m;
-    if ((settings.awayModel || 'sonnet') === m) o.selected = true;
-    asel.appendChild(o);
-  });
-  asel.onchange = async () => {
-    settings = await window.api.settingsSet({ awayModel: asel.value });
-  };
-  awayRow.appendChild(al);
-  awayRow.appendChild(asel);
-  wrap.appendChild(awayRow);
   wrap.appendChild(num('awayIdleMinutes', 'Away after (min idle)', 'Count you as away after this long with no input', 1, 240));
 
   wrap.appendChild(num('taskTimeoutMin', 'Task timeout (min)', 'Stop a task that runs too long', 1, 600));
@@ -779,19 +998,30 @@ function settingsForm() {
 
 /* ---- bootstrap + live updates ---- */
 async function refreshAll() {
-  const [u, r, t, s] = await Promise.all([
+  const [u, r, t, s, p] = await Promise.all([
     window.api.usageGet(),
     window.api.runnerState(),
     window.api.tasksList(),
     window.api.settingsGet(),
+    window.api.providersInfo(),
   ]);
   usage = u || usage;
   runnerState = r || runnerState;
   tasks = t || [];
   settings = s || {};
+  providerInfo = p || providerInfo;
   $('#t-autorun').checked = !!runnerState.autoRun;
   renderUsage();
   renderTasks();
+  if (!settings.onboarded) openOnboarding(); // first-run: pick + sign in to an agent
+}
+
+function providerById(id) {
+  return (providerInfo.list || []).find((p) => p.id === id) || null;
+}
+function providerLabel(id) {
+  const p = providerById(id);
+  return p ? p.label : id;
 }
 
 window.api.onUpdate(({ type, payload }) => {

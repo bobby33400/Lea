@@ -2,12 +2,15 @@
 
 # Lea
 
-**Your autonomous Claude assistant that works while you sleep.**
+**Your autonomous coding agent that works while you sleep.**
 
-Lea is a cross-platform **menu-bar / system-tray app** that tracks your Claude
-usage and runs a **to-do queue automatically** — the moment your limit resets,
-it picks up the next task and runs Claude headlessly. Queue work before bed,
-wake up to it done.
+Lea is a cross-platform app that runs a **to-do queue automatically** using the
+coding agent of your choice — **Claude Code, Codex, or both**. For Claude it
+tracks your usage and, the moment your limit resets, picks up the next task and
+runs it headlessly. Queue work before bed, wake up to it done.
+
+On **macOS** it lives in the menu bar; on **Windows/Linux** it's a real windowed
+application (with a tray icon too).
 
 [![build](https://github.com/bobby33400/Lea/actions/workflows/build.yml/badge.svg)](https://github.com/bobby33400/Lea/actions/workflows/build.yml)
 ![platforms](https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-informational)
@@ -29,7 +32,7 @@ wake up to it done.
         ┌──────▼───────┐   "limit hit → wait for reset, then retry"
         │   Lea Runner │────────────────────────────────────────┐
         └──────┬───────┘                                         │
-               │ claude -p   (isolated by the sandbox backend)   │
+               │ claude -p / codex exec  (isolated per backend)  │
         ┌──────▼───────┐                                  ┌──────▼──────┐
         │  Your task   │  edits confined to project dir   │  tray icon  │
         │ (a project)  │                                  │  ◷ 2:14 · 3 │
@@ -51,20 +54,37 @@ wake up to it done.
 - **Tracks tokens & the reset clock** from Claude Code's local transcripts (via
   [`ccusage`](https://github.com/ryoppippi/ccusage)) — live token count, cost,
   burn rate, and a countdown to your next usage-window reset.
-- **Queues to-dos for Claude** — each is an instruction + a project folder.
-- **Runs them autonomously** with headless `claude -p`. If a run hits the usage
-  limit, the task is requeued and retried automatically once the window resets —
-  looping through your list overnight.
-- **Isolates every run** so an unattended mistake can't wreck your machine.
+- **Queues to-dos for your agent** — each is an instruction + a project folder,
+  and can target **Claude Code** or **Codex** (per task, or a global default).
+- **Runs them autonomously** with headless `claude -p` or `codex exec`. If a run
+  hits the usage/rate limit, the task is requeued and retried automatically —
+  Claude waits for the exact window reset; Codex waits a short backoff.
+- **Isolates every run** so an unattended mistake can't wreck your machine
+  (Seatbelt for Claude on macOS; Codex uses its own sandbox; Docker on any OS).
 - **Keeps your computer awake** (only while tasks are pending) so overnight runs
   actually happen.
+
+## Agents (Claude Code / Codex)
+
+On first launch Lea asks which agent(s) to use and how to sign in — you can
+change this any time in **⚙ Settings → Agents & sign-in**.
+
+| Agent | Sign in with | Notes |
+|---|---|---|
+| **Claude Code** | `claude` + `/login`, or an `ANTHROPIC_API_KEY` | Precise reset-clock tracking via [`ccusage`](https://github.com/ryoppippi/ccusage). |
+| **Codex** | `codex login` (ChatGPT), or an `OPENAI_API_KEY` | No ccusage equivalent, so after a rate limit Lea retries on a timed backoff rather than an exact reset. Codex brings its own sandbox. |
+
+Each task shows which agent it ran on, and you can pick a different agent (and
+model) per task in the **＋ Task** form.
 
 ## Requirements
 
 - **macOS, Windows, or Linux**, Node 18+.
-- The **[`claude` CLI](https://docs.claude.com/en/docs/claude-code)** installed and
-  logged in to your Claude subscription. Verify with `claude --version` and
-  `claude -p "hi"`.
+- At least one agent CLI installed and signed in:
+  - **[`claude` CLI](https://docs.claude.com/en/docs/claude-code)** — verify with
+    `claude --version` and `claude -p "hi"`; and/or
+  - **[`codex` CLI](https://github.com/openai/codex)** — verify with
+    `codex --version` and `codex login`.
 - *(Windows/Linux only, optional)* **Docker** if you want sandboxed runs.
 
 ## Install & run (from source)
@@ -105,10 +125,16 @@ commands with nobody watching. Lea defaults to the safest option per platform.
 | **macOS** | **Seatbelt sandbox** (built-in) | Each run is wrapped in `sandbox-exec`. File **writes** are confined to the task's project folder; `~/.ssh`, `~/.aws`, Keychains, etc. are hard-blocked. Reads, network, and commands stay allowed so Claude's tools work. Zero setup. |
 | **Windows / Linux** | **None by default** (Docker opt-in) | No lightweight built-in sandbox exists. Lea runs Claude directly **and shows a warning**, unless you enable the Docker backend. |
 
-Whichever platform you're on:
+**Codex** brings its own OS sandbox (Seatbelt on macOS, Landlock on Linux), so
+Lea does **not** wrap it in `sandbox-exec`; it drives Codex with
+`--sandbox workspace-write` (edits confined to the project folder) instead. With
+the **None** backend, Codex runs with `--dangerously-bypass-approvals-and-sandbox`.
 
-- `--permission-mode bypassPermissions` is used so headless runs never block on a
-  prompt — which is exactly why isolation matters.
+Whichever platform and agent you're on:
+
+- Headless runs never block on a prompt (`--permission-mode bypassPermissions`
+  for Claude; non-interactive `codex exec` for Codex) — which is exactly why
+  isolation matters.
 - **Start with low-stakes tasks** and review logs before trusting Lea with
   anything important. Use per-project git commits so changes are reversible.
 
@@ -129,6 +155,12 @@ project folder mounted writable**.
 4. In Lea → **⚙ Settings → Sandbox backend → Docker**, paste the token and
    confirm the image name (`lea-claude:latest`).
 
+For **Codex** with the Docker backend, build its image instead and pass an
+`OPENAI_API_KEY` (Settings → Agents & sign-in → Codex → API key):
+```bash
+docker build -t lea-codex:latest -f docker/Dockerfile.codex docker/
+```
+
 > Note: on a Windows host, make sure the drive containing your project is shared
 > with Docker Desktop (Settings → Resources → File sharing).
 
@@ -137,10 +169,12 @@ project folder mounted writable**.
 | Setting | Default | Meaning |
 |---|---|---|
 | Auto-run | on | Master switch for autonomous execution |
+| Default agent | Claude Code | Runs new tasks unless a task picks another agent |
+| Agents & sign-in | — | Per-agent sign-in (CLI login or API key) + models |
 | Sandbox backend | auto | `auto` (Seatbelt on macOS, none elsewhere), `docker`, or `none` |
 | Keep computer awake | on | Prevent sleep while tasks are pending |
 | Quiet hours | off | Pause auto-run during a time window |
-| Default model | opus | Model when a task doesn't specify one |
+| Default model | opus / codex default | Model when a task doesn't specify one (per agent) |
 | Task timeout | 30 min | Kill a task that runs too long |
 | Max retries | 2 | Retries for non-limit errors |
 | Token budget / block | off | Pause after N tokens per usage window |
@@ -153,18 +187,21 @@ Settings, tasks, and logs live in the app's data folder
 
 ```
 src/
-  main.js        Electron entry: tray, window, IPC, keep-awake, live title
+  main.js        Electron entry: shell, IPC, keep-awake, live title
+  appshell.js    window+tray per OS: menu-bar (mac) / real app window (win/linux)
   preload.js     contextBridge API for the renderer
-  config.js      settings + cross-platform claude/ccusage/PATH resolution
+  config.js      settings + cross-platform claude/codex/ccusage/PATH resolution
+  providers/     agent adapters (claude.js, codex.js) + registry (index.js)
   usage.js       polls ccusage → active usage-block snapshot
   store.js       the to-do queue (tasks.json)
   runner.js      autonomous orchestrator (run → classify → wait/retry)
-  sandbox.js     isolation backends + headless claude argv   (pure, tested)
-  classify.js    ccusage parsing + run-result classification (pure, tested)
+  sandbox.js     isolation backends + headless claude/codex argv (pure, tested)
+  classify.js    ccusage parsing + run-result classification    (pure, tested)
   icon.js        zero-dependency tray + app icon generator
   spawnutil.js   cross-platform buffered spawn (cross-spawn)
-  renderer/      the tray UI (index.html, style.css, app.js)
-docker/Dockerfile  image for the Docker sandbox backend
+  renderer/      the UI (index.html, style.css, app.js)
+docker/Dockerfile         image for the Claude Docker sandbox backend
+docker/Dockerfile.codex   image for the Codex Docker sandbox backend
 scripts/selftest.js  fast offline logic tests (no tokens spent)
 ```
 
@@ -184,5 +221,5 @@ npm run selftest && npm run check
 
 ## License
 
-[MIT](LICENSE) © Lea contributors. Not affiliated with Anthropic.
-“Claude” is a trademark of Anthropic.
+[MIT](LICENSE) © Lea contributors. Not affiliated with Anthropic or OpenAI.
+“Claude” is a trademark of Anthropic; “Codex” is a trademark of OpenAI.

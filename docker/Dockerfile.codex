@@ -1,0 +1,23 @@
+# Image used by Lea's optional Docker sandbox backend when the agent is Codex.
+# Build:  docker build -t lea-codex:latest -f docker/Dockerfile.codex docker/
+#
+# At runtime Lea mounts ONLY the task's project folder at /workspace and runs
+# `codex exec` inside here, so file changes are confined to that folder. Inside
+# the container Lea passes --dangerously-bypass-approvals-and-sandbox (the
+# container itself is the isolation boundary; Codex's own Landlock sandbox can't
+# nest reliably inside Docker).
+FROM node:20-bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates ripgrep curl \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install the OpenAI Codex CLI.
+RUN npm install -g @openai/codex
+
+# Auth is provided at runtime via env (Lea passes it through):
+#   - API key: OPENAI_API_KEY
+# For ChatGPT sign-in, prefer running Codex on the host (no Docker) so it can use
+# your `codex login` session.
+WORKDIR /workspace
+ENTRYPOINT []

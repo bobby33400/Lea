@@ -20,25 +20,43 @@ const ASSETS_DIR = path.join(DATA_DIR, 'assets');
 const DEFAULT_SETTINGS = {
   autoRun: true,
   pollIntervalSec: 30,
+
+  // --- agent / provider ---
+  provider: 'claude', // default agent for tasks with no explicit provider: 'claude' | 'codex'
+  onboarded: false, // has the user completed first-run provider sign-in?
+
+  // Claude Code
   model: 'opus', // model used when you're at the keyboard
   fallbackModel: 'sonnet', // auto-fallback when the chosen model is unavailable
-  efficientWhenAway: true, // use a cheaper model for runs while you're idle/asleep
   awayModel: 'sonnet', // the "away" model (sonnet = efficient; haiku = cheapest)
+  claudeAuthMode: 'cli', // 'cli' (claude /login) | 'apikey' | 'token'
+  anthropicApiKey: '', // used when claudeAuthMode === 'apikey'
+  claudeOAuthToken: '', // subscription token (docker backend / claudeAuthMode 'token')
+  claudeBin: '',
+
+  // Codex
+  codexModel: '', // '' = codex's own configured default
+  codexAwayModel: '', // cheaper model while you're away (blank = same as codexModel)
+  codexAuthMode: 'cli', // 'cli' (codex login) | 'apikey'
+  openaiApiKey: '', // used when codexAuthMode === 'apikey'
+  codexBin: '',
+
+  efficientWhenAway: true, // use a cheaper model for runs while you're idle/asleep
   awayIdleMinutes: 10, // consider you "away" after this many minutes with no input
   permissionMode: 'bypassPermissions',
   sandboxBackend: 'auto', // 'auto' | 'seatbelt' | 'docker' | 'none'
   dockerImage: 'lea-claude:latest',
-  claudeOAuthToken: '', // only used by the docker backend (subscription auth)
+  codexDockerImage: 'lea-codex:latest',
   keepAwake: true,
   resetBufferSec: 90,
   maxRetries: 2,
+  codexRetryMinutes: 20, // wait before retrying after a Codex rate limit (no ccusage)
   taskTimeoutMin: 30,
   quietHoursEnabled: false,
   quietStart: '00:00',
   quietEnd: '08:00',
   tokenBudgetPerBlock: null,
   extraWriteDirs: [],
-  claudeBin: '',
 };
 
 function ensureDirs() {
@@ -192,6 +210,72 @@ function resolveClaudeBin() {
   return cachedClaude;
 }
 
+let cachedCodex = null;
+function resolveCodexBin() {
+  if (cachedCodex) return cachedCodex;
+  const home = os.homedir();
+  let candidates;
+  if (IS_WIN) {
+    const appdata = process.env.APPDATA || '';
+    const local = process.env.LOCALAPPDATA || '';
+    candidates = [
+      get('codexBin'),
+      process.env.CODEX_BIN,
+      appdata && path.join(appdata, 'npm', 'codex.cmd'),
+      appdata && path.join(appdata, 'npm', 'codex.exe'),
+      local && path.join(local, 'Programs', 'codex', 'codex.exe'),
+    ].filter(Boolean);
+  } else {
+    candidates = [
+      get('codexBin'),
+      process.env.CODEX_BIN,
+      '/opt/homebrew/bin/codex',
+      '/usr/local/bin/codex',
+      path.join(home, '.bun', 'bin', 'codex'),
+      path.join(home, '.local', 'bin', 'codex'),
+    ].filter(Boolean);
+  }
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c)) {
+        cachedCodex = c;
+        return c;
+      }
+    } catch {}
+  }
+  // Last resort: ask the OS where codex lives.
+  try {
+    if (IS_WIN) {
+      const out = cp.execFileSync('where', ['codex'], { timeout: 4000, encoding: 'utf8' }).trim();
+      const line = out.split(/\r?\n/).filter(Boolean)[0];
+      if (line && fs.existsSync(line)) {
+        cachedCodex = line;
+        return line;
+      }
+    } else {
+      const shell = process.env.SHELL || '/bin/zsh';
+      const out = cp.execFileSync(shell, ['-lic', 'command -v codex'], { timeout: 4000, encoding: 'utf8' }).trim();
+      const line = out.split('\n').filter(Boolean).pop();
+      if (line && fs.existsSync(line)) {
+        cachedCodex = line;
+        return line;
+      }
+    }
+  } catch {}
+  cachedCodex = IS_WIN ? 'codex.cmd' : 'codex';
+  return cachedCodex;
+}
+
+// True if the agent's CLI binary is actually installed (resolves to a real file).
+function agentBinInstalled(which) {
+  const bin = which === 'codex' ? resolveCodexBin() : resolveClaudeBin();
+  try {
+    return fs.existsSync(bin);
+  } catch {
+    return false;
+  }
+}
+
 function resolveCcusageBin() {
   const name = IS_WIN ? 'ccusage.cmd' : 'ccusage';
   const local = path.join(__dirname, '..', 'node_modules', '.bin', name);
@@ -221,5 +305,7 @@ module.exports = {
   resolvePath,
   childEnv,
   resolveClaudeBin,
+  resolveCodexBin,
+  agentBinInstalled,
   resolveCcusageBin,
 };

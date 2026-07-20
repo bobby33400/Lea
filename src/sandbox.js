@@ -108,6 +108,30 @@ function buildSeatbeltProfile(o) {
   return lines.filter((l) => l !== '').join('\n') + '\n';
 }
 
+/**
+ * codex's own argv for headless runs (`codex exec …`). Codex ships its OWN
+ * OS-level sandbox (Seatbelt on macOS, Landlock on Linux), so unlike claude it
+ * is NOT wrapped in sandbox-exec — we drive its confinement with `--sandbox`.
+ *   - workspace-write  → edits confined to the working dir (our default)
+ *   - bypass           → no confinement (used for the 'none'/'docker' backends,
+ *                        where either the user opted out or the container is the
+ *                        isolation boundary and Landlock can't nest)
+ * `--json` gives a JSONL event stream we parse for live progress + the result.
+ */
+function buildCodexArgs(o, workdir) {
+  const args = ['exec'];
+  if (o.resumeSessionId) args.push('resume', o.resumeSessionId); // continue a thread
+  args.push('--json', '--skip-git-repo-check');
+  const noOsSandbox = o.backend === 'none' || o.backend === 'docker';
+  if (noOsSandbox) args.push('--dangerously-bypass-approvals-and-sandbox');
+  else args.push('--sandbox', 'workspace-write');
+  if (o.model) args.push('-m', o.model);
+  if (workdir) args.push('-C', workdir);
+  for (const p of o.attachmentPaths || []) args.push('-i', p); // image attachments
+  args.push(o.prompt);
+  return args;
+}
+
 /** claude's own argv (shared by all backends). addDirs override per backend. */
 function buildClaudeArgs(o, addDirs) {
   // stream-json (+ required --verbose) so Lea can show live progress; the final
@@ -122,12 +146,32 @@ function buildClaudeArgs(o, addDirs) {
   return args;
 }
 
+/** Build the docker/direct command for a codex run (codex self-sandboxes). */
+function buildCodexCommand(o, backend) {
+  const bin = o.agentBin || o.codexBin || o.claudeBin; // resolved `codex` path
+
+  if (backend === 'docker') {
+    const image = o.dockerImage || 'lea-codex:latest';
+    const args = ['run', '--rm', '-i'];
+    if (o.containerName) args.push('--name', o.containerName);
+    args.push('-v', `${o.cwd}:${DOCKER_WORKDIR}`, '-w', DOCKER_WORKDIR);
+    for (const m of o.attachmentMounts || []) args.push('-v', `${m.hostDir}:${m.containerDir}:ro`);
+    for (const e of o.dockerEnvPass || []) args.push('-e', e); // e.g. OPENAI_API_KEY (by name)
+    args.push(image, 'codex', ...buildCodexArgs({ ...o, backend }, DOCKER_WORKDIR));
+    return { bin: 'docker', args };
+  }
+
+  // seatbelt/auto/none: run codex directly; its own --sandbox does the confining.
+  return { bin, args: buildCodexArgs({ ...o, backend }, o.cwd) };
+}
+
 /**
- * Build the final {bin, args} to spawn for a given backend.
+ * Build the final {bin, args} to spawn for a given agent + backend.
  * For 'seatbelt' the caller must have written `sbFile` (buildSeatbeltProfile).
  */
 function buildCommand(o) {
   const backend = o.backend || 'none';
+  if ((o.agent || 'claude') === 'codex') return buildCodexCommand(o, backend);
 
   if (backend === 'seatbelt') {
     const args = ['-f', o.sbFile, o.claudeBin, ...buildClaudeArgs(o, o.addDirs || [o.cwd])];
@@ -159,6 +203,7 @@ module.exports = {
   buildSeatbeltProfile,
   buildProfile: buildSeatbeltProfile, // backwards-compatible alias
   buildClaudeArgs,
+  buildCodexArgs,
   buildCommand,
   chooseFallback,
   SANDBOX_EXEC,

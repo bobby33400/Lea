@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   platform: process.platform,
+  providersInfo: () => ipcRenderer.invoke('providers:info'),
   usageGet: () => ipcRenderer.invoke('usage:get'),
   runnerState: () => ipcRenderer.invoke('runner:state'),
   tasksList: () => ipcRenderer.invoke('tasks:list'),

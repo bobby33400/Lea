@@ -107,7 +107,7 @@ class Store extends EventEmitter {
     return this.tasks.find((t) => t.id === id);
   }
 
-  add({ id, title, prompt, cwd, model, attachments } = {}) {
+  add({ id, title, prompt, cwd, model, provider, attachments } = {}) {
     const now = Date.now();
     const atts = (Array.isArray(attachments) ? attachments : [])
       .filter((a) => a && a.path)
@@ -120,6 +120,7 @@ class Store extends EventEmitter {
       prompt: (prompt || '').trim(),
       cwd: cwd || '',
       model: model || '',
+      provider: provider || '', // '' = use the global default agent
       status: 'queued', // queued | running | done | failed
       attempts: 0,
       createdAt: now,

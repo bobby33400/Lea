@@ -2,7 +2,7 @@
 /* Plain-node smoke tests for the pure logic (no electron, no token spend). */
 const assert = require('assert');
 const { buildSeatbeltProfile, buildCommand, chooseFallback, DOCKER_WORKDIR } = require('../src/sandbox');
-const { parseCcusageBlocks, classifyClaudeResult } = require('../src/classify');
+const { parseCcusageBlocks, classifyClaudeResult, classifyCodexResult, summarizeCodexEvent } = require('../src/classify');
 
 let n = 0;
 const ok = (name) => {
@@ -313,6 +313,93 @@ const base = {
   assert.deepStrictEqual(summarizeStreamEvent({ type: 'result' }), [], 'result event produces no progress line');
   assert.deepStrictEqual(summarizeStreamEvent({ type: 'system', subtype: 'init' }), []);
   ok('summarizeStreamEvent + describeTool produce readable progress lines');
+}
+
+// --- codex: argv for the direct (self-sandboxed) backends ---
+{
+  const cx = buildCommand({
+    agent: 'codex',
+    backend: 'none',
+    agentBin: '/usr/local/bin/codex',
+    prompt: 'do it',
+    cwd: '/Users/u/proj',
+    model: 'gpt-5-codex',
+  });
+  assert.strictEqual(cx.bin, '/usr/local/bin/codex', 'codex runs directly (self-sandboxed)');
+  assert.strictEqual(cx.args[0], 'exec');
+  assert.ok(cx.args.includes('--json') && cx.args.includes('--skip-git-repo-check'));
+  assert.ok(cx.args.includes('--dangerously-bypass-approvals-and-sandbox'), "'none' backend => codex full access");
+  assert.ok(cx.args.includes('-m') && cx.args.includes('gpt-5-codex'));
+  assert.ok(cx.args.includes('-C') && cx.args.includes('/Users/u/proj'));
+  assert.strictEqual(cx.args[cx.args.length - 1], 'do it', 'prompt is the last arg');
+
+  // seatbelt/auto: codex is NOT wrapped in sandbox-exec; it uses its own sandbox
+  const cs = buildCommand({ agent: 'codex', backend: 'seatbelt', agentBin: '/usr/local/bin/codex', prompt: 'x', cwd: '/p', sbFile: '/tmp/x.sb' });
+  assert.strictEqual(cs.bin, '/usr/local/bin/codex', 'codex is never wrapped in sandbox-exec');
+  assert.ok(cs.args.includes('--sandbox') && cs.args.includes('workspace-write'), 'seatbelt/auto => codex workspace-write');
+  assert.ok(!cs.args.includes('--dangerously-bypass-approvals-and-sandbox'));
+  ok('codex builds a direct `codex exec` argv and self-sandboxes (no sandbox-exec wrapper)');
+}
+
+// --- codex: docker backend mounts the project + forwards keys by name ---
+{
+  const cd = buildCommand({
+    agent: 'codex',
+    backend: 'docker',
+    dockerImage: 'lea-codex:latest',
+    containerName: 'lea-t1',
+    cwd: '/Users/u/proj',
+    prompt: 'y',
+    dockerEnvPass: ['OPENAI_API_KEY'],
+  });
+  assert.strictEqual(cd.bin, 'docker');
+  assert.ok(cd.args.includes('-v') && cd.args.includes(`/Users/u/proj:${DOCKER_WORKDIR}`), 'mounts project at workdir');
+  assert.ok(cd.args.includes('-e') && cd.args.includes('OPENAI_API_KEY'), 'passes api key by name only');
+  assert.ok(cd.args.includes('lea-codex:latest') && cd.args.includes('codex'));
+  assert.ok(cd.args.includes('exec') && cd.args.includes('--json'));
+  assert.ok(cd.args.includes('--dangerously-bypass-approvals-and-sandbox'), 'inside docker the container is the isolation');
+  const ci = cd.args.lastIndexOf('-C');
+  assert.strictEqual(cd.args[ci + 1], DOCKER_WORKDIR, '-C uses the container workdir');
+  ok('codex docker backend mounts only the project dir and forwards keys by name');
+}
+
+// --- codex: classify a successful JSONL run ---
+{
+  const stdout = [
+    JSON.stringify({ type: 'thread.started', thread_id: 'th_1' }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'npm test' } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'All tests pass.' } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 4 } }),
+  ].join('\n');
+  const r = classifyCodexResult({ code: 0, stdout, stderr: '' });
+  assert.strictEqual(r.kind, 'ok');
+  assert.strictEqual(r.result, 'All tests pass.', 'final agent_message is the result');
+  assert.strictEqual(r.sessionId, 'th_1', 'captures the thread id for resume');
+  assert.strictEqual(r.costUSD, null, 'codex reports no dollar cost');
+  ok('classifyCodexResult reads the final agent message + thread id from the JSONL stream');
+}
+
+// --- codex: rate limit + auth ---
+{
+  const lim = classifyCodexResult({
+    code: 1,
+    stdout: JSON.stringify({ type: 'turn.failed', error: { message: 'rate limit exceeded, try again in 30 seconds' } }),
+    stderr: '',
+  });
+  assert.strictEqual(lim.kind, 'limited');
+  assert.strictEqual(lim.retryAfterMs, 30000, 'parses the "try again in 30 seconds" hint');
+  const au = classifyCodexResult({ code: 1, stdout: '', stderr: 'API error: 401 Unauthorized' });
+  assert.strictEqual(au.kind, 'auth', '401 => auth, not limited/error');
+  ok('classifyCodexResult maps rate limits (with retry hint) and 401s correctly');
+}
+
+// --- codex: progress summarizer ---
+{
+  const parts = summarizeCodexEvent({ type: 'item.completed', item: { type: 'agent_message', text: 'Hello' } });
+  assert.strictEqual(parts.length, 1);
+  assert.ok(parts[0].includes('Hello'));
+  assert.deepStrictEqual(summarizeCodexEvent({ type: 'turn.completed', usage: {} }), [], 'terminal events produce no line');
+  ok('summarizeCodexEvent turns item.completed events into progress lines');
 }
 
 console.log(`\nselftest OK — ${n} checks passed`);

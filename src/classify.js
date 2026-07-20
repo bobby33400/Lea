@@ -233,12 +233,153 @@ function summarizeStreamEvent(o) {
   return []; // system/init, user/tool_result, result — skipped from the play-by-play
 }
 
+/* ---------------------------------------------------------------------------
+ * Codex (`codex exec --json`) — the JSONL event stream has a different shape
+ * from claude's stream-json, so it gets its own pure parse/classify helpers.
+ * ------------------------------------------------------------------------- */
+
+// Parse a "try again in 42s / 3 minutes" hint into ms, if present.
+function codexRetryAfterMs(text) {
+  if (!text) return null;
+  const m = /(?:try again|retry|resets?)\D{0,20}?(\d+)\s*(second|sec|minute|min|hour|hr)/i.exec(String(text));
+  if (!m) return null;
+  const n = Number(m[1]);
+  const unit = m[2].toLowerCase();
+  const mult = unit.startsWith('sec') ? 1000 : unit.startsWith('min') ? 60000 : 3600000;
+  return n > 0 ? n * mult : null;
+}
+
+// One codex `item.completed` item → a readable progress line (or null to skip).
+function describeCodexItem(item) {
+  if (!item || typeof item !== 'object') return null;
+  const short = (s, n = 140) => String(s || '').replace(/\s+/g, ' ').slice(0, n);
+  switch (item.type) {
+    case 'agent_message':
+    case 'assistant_message':
+      return '💬 ' + short(item.text || item.message || '', 240);
+    case 'command_execution':
+    case 'command':
+      return '🔧 Running: ' + short(item.command || item.cmd || '');
+    case 'file_change':
+    case 'patch': {
+      const paths = (item.changes || item.files || [])
+        .map((c) => (typeof c === 'string' ? c : c && c.path))
+        .filter(Boolean);
+      return '🔧 Editing ' + short(paths.join(', ') || item.path || 'files', 120);
+    }
+    case 'mcp_tool_call':
+      return '🔧 ' + short([item.server, item.tool || item.name].filter(Boolean).join('.'));
+    case 'web_search':
+      return '🔍 ' + short(item.query || '');
+    case 'todo_list':
+      return 'Updating its plan';
+    case 'error':
+      return '⚠️ ' + short(item.message || item.error || 'error', 200);
+    default:
+      return null; // reasoning / started / etc. — too noisy for the play-by-play
+  }
+}
+
+// One codex JSONL event → readable progress line(s) (or [] to skip).
+function summarizeCodexEvent(o) {
+  if (!o || typeof o !== 'object') return [];
+  if (o.type === 'item.completed' && o.item) {
+    const line = describeCodexItem(o.item);
+    return line ? [line] : [];
+  }
+  return [];
+}
+
+/**
+ * Classify a finished `codex exec --json` run. Same contract as claude's
+ * classifier: { kind: 'ok'|'limited'|'auth'|'error', ... }.
+ */
+function classifyCodexResult(o) {
+  const { code, stdout = '', stderr = '', timedOut = false } = o || {};
+  if (timedOut) {
+    return { kind: 'error', error: 'timeout', message: 'Task exceeded its time limit and was stopped.' };
+  }
+
+  let sessionId = null;
+  let lastText = '';
+  let failure = '';
+  let usage = null;
+  let sawJson = false;
+
+  for (const line of stdout.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t[0] !== '{') continue;
+    const ev = tryParse(t);
+    if (!ev) continue;
+    sawJson = true;
+    switch (ev.type) {
+      case 'thread.started':
+      case 'session.created':
+        sessionId = ev.thread_id || ev.session_id || ev.id || sessionId;
+        break;
+      case 'item.completed':
+        if (ev.item && (ev.item.type === 'agent_message' || ev.item.type === 'assistant_message')) {
+          lastText = ev.item.text || ev.item.message || lastText;
+        } else if (ev.item && ev.item.type === 'error') {
+          failure = ev.item.message || ev.item.error || failure;
+        }
+        break;
+      case 'turn.completed':
+        usage = ev.usage || usage;
+        break;
+      case 'turn.failed':
+        failure = (ev.error && (ev.error.message || ev.error)) || failure;
+        break;
+      case 'error':
+        failure = ev.message || ev.error || failure;
+        break;
+      default:
+        break;
+    }
+  }
+
+  const signal = `${failure}\n${lastText}\n${stderr}`;
+  const auth = AUTH_RE.test(signal);
+  const limited = !auth && LIMIT_RE.test(signal);
+
+  if (failure) {
+    if (auth) return { kind: 'auth', message: String(failure).slice(0, 600) };
+    if (limited) return { kind: 'limited', message: String(failure).slice(0, 600), retryAfterMs: codexRetryAfterMs(signal) };
+    return { kind: 'error', error: 'codex', message: String(failure).slice(0, 600) };
+  }
+
+  if (auth) return { kind: 'auth', message: 'Codex sign-in expired — please sign in again.' };
+  if (limited) return { kind: 'limited', message: 'Rate limit reached.', retryAfterMs: codexRetryAfterMs(signal) };
+
+  if (code === 0 || (sawJson && lastText)) {
+    const result = lastText || (sawJson ? '' : stdout.trim());
+    return {
+      kind: 'ok',
+      result,
+      costUSD: null, // codex exec does not report a dollar cost
+      sessionId,
+      usage,
+      followups: extractFollowups(result),
+    };
+  }
+
+  return {
+    kind: 'error',
+    error: `exit ${code}`,
+    message: (stderr || stdout || '').trim().slice(0, 600) || `codex exited with code ${code}`,
+  };
+}
+
 module.exports = {
   parseCcusageBlocks,
   classifyClaudeResult,
+  classifyCodexResult,
   extractFollowups,
   describeTool,
+  describeCodexItem,
   summarizeStreamEvent,
+  summarizeCodexEvent,
+  codexRetryAfterMs,
   LIMIT_RE,
   AUTH_RE,
 };

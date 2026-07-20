@@ -162,7 +162,7 @@ function finish(ctx, task, result, model) {
       for (const f of result.followups) lines.push(`- ${f}`);
       lines.push('');
     }
-    if (summary) lines.push("## Claude's summary", '', summary, '');
+    if (summary) lines.push('## Agent summary', '', summary, '');
 
     fs.writeFileSync(ctx.file, lines.join('\n'));
     return ctx.file;
