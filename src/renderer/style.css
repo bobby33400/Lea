@@ -176,6 +176,7 @@ body {
 .list {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden; /* never scroll sideways — long content wraps instead */
   padding: 8px;
 }
 .empty {
@@ -250,6 +251,7 @@ body {
   margin: 4px 0;
   line-height: 1.55;
   white-space: normal;
+  overflow-wrap: anywhere; /* break long commands/paths instead of overflowing */
 }
 .fu-item code {
   background: #0f1013;
@@ -258,6 +260,8 @@ body {
   padding: 1px 5px;
   font: 11px "SF Mono", ui-monospace, Menlo, monospace;
   color: var(--yellow);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .fu-code {
   background: #0f1013;
@@ -433,6 +437,7 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
+  flex-shrink: 0; /* keep the icon column intact; the text column shrinks instead */
 }
 button.icon {
   background: transparent;
