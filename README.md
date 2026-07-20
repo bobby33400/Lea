@@ -77,14 +77,46 @@ change this any time in **⚙ Settings → Agents & sign-in**.
 Each task shows which agent it ran on, and you can pick a different agent (and
 model) per task in the **＋ Task** form.
 
+### Set up Codex
+
+Lea uses OpenAI's **Codex CLI** but does **not** bundle it — install and sign in
+once (Lea's onboarding shows *"CLI not found"* until you do):
+
+1. **Install** it globally (this drops `codex` into your npm global bin, e.g.
+   `/opt/homebrew/bin`, which is where Lea looks):
+   ```bash
+   npm install -g @openai/codex
+   codex --version        # confirm it's on your PATH
+   ```
+2. **Sign in** — pick one:
+   - **ChatGPT** (needs a paid Plus/Pro/Team/Enterprise plan) — opens a browser:
+     ```bash
+     codex login
+     codex login status   # verify you're signed in
+     ```
+   - **API key** (usage-billed) — reads the key from stdin:
+     ```bash
+     printenv OPENAI_API_KEY | codex login --with-api-key
+     ```
+     …or skip the CLI login entirely and paste your key into Lea at
+     **⚙ Settings → Agents & sign-in → Codex → API key**.
+3. **Relaunch Lea.** It resolves the `codex` path once at startup, so quit it
+   from the tray and reopen — Settings → Agents & sign-in will then show Codex
+   as **"CLI found"**, and you can queue Codex tasks.
+
+> Codex runs headlessly via `codex exec` and brings its own OS sandbox
+> (`--sandbox workspace-write`), so Lea doesn't wrap it in Seatbelt. Because
+> there's no `ccusage` for Codex, after a rate limit Lea retries on a timed
+> backoff (the `codexRetryMinutes` setting) instead of waiting for an exact reset.
+
 ## Requirements
 
 - **macOS, Windows, or Linux**, Node 18+.
 - At least one agent CLI installed and signed in:
   - **[`claude` CLI](https://docs.claude.com/en/docs/claude-code)** — verify with
     `claude --version` and `claude -p "hi"`; and/or
-  - **[`codex` CLI](https://github.com/openai/codex)** — verify with
-    `codex --version` and `codex login`.
+  - **[`codex` CLI](https://github.com/openai/codex)** — `npm i -g @openai/codex`,
+    then sign in (see [Set up Codex](#set-up-codex)).
 - *(Windows/Linux only, optional)* **Docker** if you want sandboxed runs.
 
 ## Install & run (from source)
