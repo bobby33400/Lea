@@ -1,7 +1,7 @@
 {
   "name": "lea",
   "productName": "Lea",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Lea — a cross-platform menu-bar/tray app that tracks your Claude usage and autonomously runs a to-do queue the moment your limit resets, so Claude works while you sleep.",
   "main": "src/main.js",
   "author": "Lea contributors",
